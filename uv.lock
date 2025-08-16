@@ -2017,6 +2017,7 @@ source = { editable = "." }
 dependencies = [
     { name = "polars" },
     { name = "pydantic" },
+    { name = "tornado" },
 ]
 
 [package.dev-dependencies]
@@ -2038,6 +2039,7 @@ dev = [
 requires-dist = [
     { name = "polars" },
     { name = "pydantic" },
+    { name = "tornado" },
 ]
 
 [package.metadata.requires-dev]

@@ -40,6 +40,7 @@ classifiers = [
 dependencies = [
     "pydantic",
     "polars",
+    "tornado",
 ]
 
 
@@ -63,7 +64,7 @@ dev = [
 
 [project.scripts]
 # Add script entry points here:
-wg = "woodglue.server:run_server"
+wgl = "woodglue.cli:main"
 
 # ---- Build system ----
 
@@ -83,11 +84,11 @@ source = "uv-dynamic-versioning"
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"
-bump = "true"
+bump = true
 
 [tool.hatch.build.targets.wheel]
 # The source location for the package.
-packages = ["src/botglue"]
+packages = ["src/woodglue"]
 
 
 # ---- Settings ----

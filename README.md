@@ -24,7 +24,7 @@ In woodworking, the right glue applied correctly creates joints that are stronge
 pip install woodglue
 
 # Run your server
-wg
+wgl server start 
 ```
 
 ## Let's Build Something Together
