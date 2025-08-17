@@ -20,16 +20,20 @@ class ArgInfo(NamedTuple):
     @classmethod
     def from_param(cls, param: inspect.Parameter, origin: Any):
         description = ""
+        is_optional = param.default != inspect.Parameter.empty
+        default = param.default if is_optional else None
         if issubclass(origin, BaseModel):
             if param.name in origin.model_fields:
                 field = origin.model_fields[param.name]
                 if field.description is not None:
                     description = field.description
+                is_optional = not field.is_required()
+                default = field.default
         return cls(
             name=param.name,
             annotation=param.annotation if param.annotation != inspect.Parameter.empty else None,
-            default=param.default if param.default != inspect.Parameter.empty else None,
-            is_optional=param.default == inspect.Parameter.empty,
+            default=default,
+            is_optional=is_optional,
             description=description,
         )
 
@@ -179,10 +183,10 @@ class ActionTree(Method):
             and self.args[0].name == "ctx"
             and self.args[0].annotation == RunContext
         )
-        cli_args = self.args[1:] if has_ctx else self.args
+        self_args = self.args[1:] if has_ctx else self.args
         args, opts = [], []
-        for arg in cli_args:
-            if not arg.is_optional:
+        for arg in self_args:
+            if arg.is_optional:
                 opts.append(arg)
             else:
                 args.append(arg)
