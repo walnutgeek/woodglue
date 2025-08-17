@@ -1,9 +1,10 @@
 import inspect
+import sys
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PosixPath
 from typing import Any, Generic, NamedTuple, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from woodglue import GlobalRef
 
@@ -13,14 +14,22 @@ class ArgInfo(NamedTuple):
     annotation: Any | None
     default: Any | None
     is_optional: bool
+    description: str
 
     @classmethod
-    def from_param(cls, param: inspect.Parameter):
+    def from_param(cls, param: inspect.Parameter, origin: Any):
+        description = ""
+        if issubclass(origin, BaseModel):
+            if param.name in origin.model_fields:
+                field = origin.model_fields[param.name]
+                if field.description is not None:
+                    description = field.description
         return cls(
             name=param.name,
             annotation=param.annotation if param.annotation != inspect.Parameter.empty else None,
             default=param.default if param.default != inspect.Parameter.empty else None,
-            is_optional=param.default != inspect.Parameter.empty,
+            is_optional=param.default == inspect.Parameter.empty,
+            description=description,
         )
 
     def to_value(self, v: str):
@@ -31,6 +40,21 @@ class ArgInfo(NamedTuple):
         if issubclass(self.annotation, BaseModel):
             return self.annotation.model_validate_json(v)
         return self.annotation(v)
+
+    def is_turn_on_option(self) -> bool:
+        return self.annotation is bool and self.default is False
+
+    @property
+    def type(self) -> str:
+        if self.annotation is not None:
+            return self.annotation.__name__
+        return "str"
+
+    def arg_help(self, indent: int):
+        return f"{' ' * indent}<{self.name}> - {self.type}: {self.description}"
+
+    def opt_help(self, indent: int):
+        return f"{' ' * indent}[--{self.name}{'=value' if not self.is_turn_on_option() else ''}] - {self.type}: {self.description}. Default: {self.default!r}"
 
 
 class Method:
@@ -55,7 +79,7 @@ class Method:
     def _update_from_signature(self):
         o = self.o
         sig = inspect.signature(o)
-        self._args = [ArgInfo.from_param(param) for param in sig.parameters.values()]
+        self._args = [ArgInfo.from_param(param, o) for param in sig.parameters.values()]
         self._args_by_name = {arg.name: arg for arg in self._args}
         self._returns = sig.return_annotation
 
@@ -98,13 +122,6 @@ class Method:
         return self.o(*args, **kwargs)
 
 
-def nop():
-    pass
-
-
-NOP = Method(nop)
-
-
 T = TypeVar("T", bound=Method)
 
 
@@ -124,16 +141,21 @@ class MethodDict(Generic[T], dict[str, T]):
         return self.add(o)
 
 
-class RunContext:
-    state_by_path: dict[Path, Any]
+class RunResult:
+    success: bool
+    msgs: list[str]
+    print_func: Callable[[str], None] | None
 
-    def __init__(self):
-        self.state_by_path = {}
+    def __init__(self, success: bool = False, print_func: Callable[[str], None] | None = print):
+        self.success = success
+        self.msgs = []
+        self.print_func = print_func
 
-    def get(self, path: Path | str) -> Any:
-        if isinstance(path, str):
-            path = Path(path)
-        return self.state_by_path[path]
+    def print(self, msg: str):
+        if self.print_func is None:
+            self.msgs.append(msg)
+        else:
+            self.print_func(msg)
 
 
 class ActionTree(Method):
@@ -144,53 +166,158 @@ class ActionTree(Method):
         self.actions = MethodDict["ActionTree"](method_type=self.__class__)
 
     def run_args(
-        self, cli_args: list[str], ctx: RunContext | None = None, path: Path | None = None
-    ):
-        ctx = ctx or RunContext()
-        path = path or Path("/")
+        self, argv: list[str], print_func: Callable[[str], None] | None = print
+    ) -> RunResult:
+        cli_name = Path(argv[0]).name
+        cli_args = argv[1:]
+        return self._run_args(cli_args, RunContext(self, cli_name, print_func), PosixPath("/"))
+
+    def _split_ctx_args_opts(self) -> tuple[bool, list[ArgInfo], list[ArgInfo]]:
+        has_ctx: bool = (
+            len(self.args) > 0
+            and self.args[0].name == "ctx"
+            and self.args[0].annotation == RunContext
+        )
+        cli_args = self.args[1:] if has_ctx else self.args
+        args, opts = [], []
+        for arg in cli_args:
+            if not arg.is_optional:
+                opts.append(arg)
+            else:
+                args.append(arg)
+        return has_ctx, args, opts
+
+    def _run_args(self, cli_args: list[str], ctx: "RunContext", path: PosixPath) -> RunResult:
         current_arg_index = 0
         arg_values = {}
-
-        required_args = self.args
-        if len(self.args) and self.args[0].name == "ctx" and self.args[0].annotation == RunContext:
+        has_ctx, required_args, _ = self._split_ctx_args_opts()
+        if has_ctx:
             arg_values["ctx"] = ctx
-            required_args = required_args[1:]
-        required_args = [arg for arg in required_args if not arg.is_optional]
-
-        while current_arg_index < len(cli_args):
-            arg_str = cli_args[current_arg_index]
-            if required_args:
-                arg = required_args[0]
+        error = None
+        try:
+            while current_arg_index < len(cli_args):
+                arg_str = cli_args[current_arg_index]
+                if required_args:
+                    arg = required_args[0]
+                    if arg_str.startswith("--"):
+                        raise ValueError(
+                            f"Argument {arg.name} is required, but getting option {arg_str}"
+                        )
+                    current_arg_index += 1
+                    arg_values[arg.name] = arg.to_value(arg_str)
+                    required_args.pop(0)
+                    continue
                 if arg_str.startswith("--"):
-                    raise ValueError(f"Argument {arg.name} is required but getting {arg_str}")
-                current_arg_index += 1
-                arg_values[arg.name] = arg.to_value(arg_str)
-                required_args.pop(0)
-                continue
-            if arg_str.startswith("--"):
-                k, v = arg_str[2:].split("=", 1)
-                if k in arg_values:
-                    raise ValueError(f"Argument {k} is already set to {arg_values[k]}")
-                if k not in self.args_by_name:
-                    raise ValueError(
-                        f"Argument {k} is not a valid argument, expected one of {', '.join(self.args_by_name.keys())}"
-                    )
-                arg = self.args_by_name[k]
-                arg_values[k] = arg.to_value(v)
-                current_arg_index += 1
-                continue
-            elif arg_str in self.actions:
-                action: ActionTree = self.actions[arg_str]
-                ctx.state_by_path[path] = self(**arg_values)
-                action.run_args(cli_args[current_arg_index + 1 :], ctx, path / arg_str)
-                return
-            raise ValueError(f"Argument {arg_str} is not a valid argument")
-        if required_args:
-            raise ValueError(
-                f"Required arguments are missing: {', '.join([arg.name for arg in required_args])}"
-            )
-        if self.actions:
-            raise ValueError(
-                f"Action need to be specified, expected one of {', '.join(self.actions.keys())}"
-            )
-        self(**arg_values)
+                    arg_str = arg_str[2:]
+                    if "=" in arg_str:
+                        k, v = arg_str.split("=", 1)
+                    else:
+                        k = arg_str
+                        v = None
+                    if k in arg_values:
+                        raise ValueError(f"--{k} is already set to {arg_values[k]}")
+                    if k not in self.args_by_name:
+                        raise ValueError(
+                            f"--{k} is not a valid option, expected one of {list(map(lambda x: f'--{x}', self.args_by_name.keys()))}"
+                        )
+                    arg = self.args_by_name[k]
+                    if v is None:
+                        if arg.is_turn_on_option():
+                            v = "y"
+                        else:
+                            current_arg_index += 1
+                            if current_arg_index >= len(cli_args):
+                                raise ValueError(f"Value is not provided for --{k}")
+                            v = cli_args[current_arg_index]
+                    arg_values[k] = arg.to_value(v)
+                    current_arg_index += 1
+                    continue
+                elif arg_str in self.actions:
+                    action: ActionTree = self.actions[arg_str]
+                    ctx.state_by_path[path] = self(**arg_values)
+                    return action._run_args(cli_args[current_arg_index + 1 :], ctx, path / arg_str)
+                raise ValueError(f"Argument {arg_str!r} is not a valid")
+            if required_args:
+                raise ValueError(
+                    f"Required arguments are missing: {' '.join(f'<{arg.name}>' for arg in required_args)}"
+                )
+            if self.actions:
+                raise ValueError(
+                    f"Action need to be specified, expected one of {', '.join(self.actions.keys())}"
+                )
+        except Exception:
+            error = str(sys.exc_info()[1])
+        if error or ctx.is_print_help_selected():
+            ctx.print_help(error, path, self, arg_values)
+        else:
+            self(**arg_values)
+            ctx.run_result.success = True
+        return ctx.run_result
+
+
+class Main(BaseModel):
+    help: bool = Field(default=False, description="Show help")
+
+
+class RunContext:
+    state_by_path: dict[Path, Any]
+    main_at: ActionTree
+    run_result: RunResult
+    cli_name: str
+
+    def __init__(
+        self, main_at: ActionTree, cli_name: str, print_func: Callable[[str], None] | None = print
+    ):
+        self.state_by_path = {}
+        self.main_at = main_at
+        self.run_result = RunResult(print_func=print_func)
+        self.cli_name = cli_name
+
+    def get(self, path: Path | str) -> Any:
+        if isinstance(path, str):
+            path = Path(path)
+        return self.state_by_path[path]
+
+    def __contains__(self, path: Path | str) -> bool:
+        if isinstance(path, str):
+            path = Path(path)
+        return path in self.state_by_path
+
+    def is_print_help_selected(self) -> bool:
+        v = self.get("/")
+        if isinstance(v, Main):
+            return v.help
+        return False
+
+    def print(self, msg: str):
+        self.run_result.print(msg)
+
+    def _recursive_help(
+        self,
+        print_at: ActionTree,
+        indent: int,
+        path: PosixPath,
+        current_at: ActionTree,
+        arg_values: dict[str, Any],
+    ):
+        indent += 2
+        _, arguments, options = print_at._split_ctx_args_opts()  # pyright: ignore[reportPrivateUsage]
+        for arg in arguments:
+            self.print(arg.arg_help(indent))
+        for opt in options:
+            self.print(opt.opt_help(indent))
+        if print_at.actions:
+            self.print(f"{' ' * indent}Actions:")
+            indent += 2
+            for action_name, action in print_at.actions.items():
+                self.print(f"{' ' * indent}{action_name} - {action.doc}")
+                self._recursive_help(action, indent + 2, path, current_at, arg_values)
+
+    def print_help(
+        self, error: str | None, path: PosixPath, current_at: ActionTree, arg_values: dict[str, Any]
+    ):
+        if error:
+            self.print(f"Error: {error}")
+        self.print("Usage: ")
+        self.print(f"  {self.cli_name} {' '.join(path.parts[1:])}")
+        self._recursive_help(current_at, 2, path, current_at, arg_values)
