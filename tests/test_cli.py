@@ -19,7 +19,7 @@ server_at = main_at.actions.add(Server)
 @server_at.actions.wrap
 def start(ctx: RunContext):
     """Starts the server in the foreground"""
-    ctx.print(f"Starting server with data directory: {ctx.get('/server').data}")
+    ctx.print(f"Starting server with data directory: {ctx.path.get('/server').data}")  # pyright: ignore[reportOptionalMemberAccess]
 
 
 @server_at.actions.wrap
@@ -63,13 +63,14 @@ def test_main():
             print(repr(rr.msgs))
         return match
 
+    path_type = type(Path("/")).__name__
     full_help = [
         "Usage: ",
         "  wgl ",
         "    [--help] - bool: Show help. Default: False",
         "    Actions:",
         "      server - Managing the server",
-        "          [--data=value] - Path: directory to store all server data. Default: PosixPath('data')",
+        f"          [--data=value] - Path: directory to store all server data. Default: {path_type}('data')",
         "          Actions:",
         "            start - Starts the server in the foreground",
         "            stop - Stops the server",

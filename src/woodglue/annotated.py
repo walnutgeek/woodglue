@@ -1,10 +1,11 @@
 import inspect
 import sys
 from collections.abc import Callable
-from pathlib import Path, PosixPath
+from pathlib import Path
 from typing import Any, Generic, NamedTuple, TypeVar
 
 from pydantic import BaseModel, Field
+from typing_extensions import override
 
 from woodglue import GlobalRef
 
@@ -170,7 +171,7 @@ class ActionTree(Method):
     ) -> RunResult:
         cli_name = Path(argv[0]).name
         cli_args = argv[1:]
-        return self._run_args(cli_args, RunContext(self, cli_name, print_func), PosixPath("/"))
+        return self._run_args(cli_args, RunContext(self, cli_name, print_func))
 
     def _split_ctx_args_opts(self) -> tuple[bool, list[ArgInfo], list[ArgInfo]]:
         has_ctx: bool = (
@@ -187,7 +188,7 @@ class ActionTree(Method):
                 args.append(arg)
         return has_ctx, args, opts
 
-    def _run_args(self, cli_args: list[str], ctx: "RunContext", path: PosixPath) -> RunResult:
+    def _run_args(self, cli_args: list[str], ctx: "RunContext") -> RunResult:
         current_arg_index = 0
         arg_values = {}
         has_ctx, required_args, _ = self._split_ctx_args_opts()
@@ -234,8 +235,9 @@ class ActionTree(Method):
                     continue
                 elif arg_str in self.actions:
                     action: ActionTree = self.actions[arg_str]
-                    ctx.state_by_path[path] = self(**arg_values)
-                    return action._run_args(cli_args[current_arg_index + 1 :], ctx, path / arg_str)
+                    ctx.path.value = self(**arg_values)
+                    ctx.add_path(arg_str)
+                    return action._run_args(cli_args[current_arg_index + 1 :], ctx)
                 raise ValueError(f"Argument {arg_str!r} is not a valid")
             if required_args:
                 raise ValueError(
@@ -248,9 +250,9 @@ class ActionTree(Method):
         except Exception:
             error = str(sys.exc_info()[1])
         if error or ctx.is_print_help_selected():
-            ctx.print_help(error, path, self, arg_values)
+            ctx.print_help(error, ctx.path, self)
         else:
-            self(**arg_values)
+            ctx.path.value = self(**arg_values)
             ctx.run_result.success = True
         return ctx.run_result
 
@@ -259,8 +261,79 @@ class Main(BaseModel):
     help: bool = Field(default=False, description="Show help")
 
 
+class PathValue:
+    """
+    Records values along a path.
+
+    >>> root = PathValue.root()
+    >>> root.value = "I am Groot"
+    >>> foo = PathValue("foo", root, "I am foo")
+    >>> foo.get("/foo")
+    'I am foo'
+    >>> foo.parts
+    ('', 'foo')
+    >>> root.parts
+    ('',)
+    >>> foo.get("/bar")
+    Traceback (most recent call last):
+    ...
+    ValueError: Path /bar is not contained in /foo
+    >>> foo.get("/foo/")
+    'I am foo'
+    >>> foo.get("/")
+    'I am Groot'
+
+
+    """
+
+    name: str
+    parent: "PathValue | None"
+    value: Any | None
+
+    def __init__(self, name: str, parent: "PathValue | None", value: Any | None = None) -> None:
+        if name == "":
+            assert parent is None
+        else:
+            assert parent is not None
+        self.name = name
+        self.parent = parent
+        self.value = value
+
+    @classmethod
+    def root(cls) -> "PathValue":
+        return cls(name="", parent=None)
+
+    @property
+    def parts(self) -> tuple[str, ...]:
+        if self.parent is None:
+            return (self.name,)
+        return (*self.parent.parts, self.name)
+
+    def get_back(self, n: int) -> Any | None:
+        if n == 0:
+            return self.value
+        if self.parent is None:
+            return None
+        return self.parent.get_back(n - 1)
+
+    def get(self, path: str) -> Any | None:
+        parts = self.parts
+        lookup_parts = tuple(path.split("/"))
+        if lookup_parts[-1] == "":
+            lookup_parts = lookup_parts[:-1]
+        lpl = len(lookup_parts)
+        pl = len(parts)
+        if parts[:lpl] != lookup_parts:
+            raise ValueError(f"Path {path} is not contained in {self}")
+        return self.get_back(pl - lpl)
+
+    @override
+    def __str__(self):
+        return "/".join(self.parts)
+
+
 class RunContext:
-    state_by_path: dict[Path, Any]
+    path: PathValue
     main_at: ActionTree
     run_result: RunResult
     cli_name: str
@@ -268,23 +341,16 @@ class RunContext:
     def __init__(
         self, main_at: ActionTree, cli_name: str, print_func: Callable[[str], None] | None = print
     ):
-        self.state_by_path = {}
+        self.path = PathValue.root()
         self.main_at = main_at
         self.run_result = RunResult(print_func=print_func)
         self.cli_name = cli_name
 
-    def get(self, path: Path | str) -> Any:
-        if isinstance(path, str):
-            path = Path(path)
-        return self.state_by_path[path]
-
-    def __contains__(self, path: Path | str) -> bool:
-        if isinstance(path, str):
-            path = Path(path)
-        return path in self.state_by_path
+    def add_path(self, path: str):
+        self.path = PathValue(path, self.path)
 
     def is_print_help_selected(self) -> bool:
-        v = self.get("/")
+        v = self.path.get("/")
         if isinstance(v, Main):
             return v.help
         return False
@@ -292,14 +358,7 @@ class RunContext:
     def print(self, msg: str):
         self.run_result.print(msg)
 
-    def _recursive_help(
-        self,
-        print_at: ActionTree,
-        indent: int,
-        path: PosixPath,
-        current_at: ActionTree,
-        arg_values: dict[str, Any],
-    ):
+    def _recursive_help(self, print_at: ActionTree, indent: int):
         indent += 2
         _, arguments, options = print_at._split_ctx_args_opts()  # pyright: ignore[reportPrivateUsage]
         for arg in arguments:
@@ -311,13 +370,11 @@ class RunContext:
             indent += 2
             for action_name, action in print_at.actions.items():
                 self.print(f"{' ' * indent}{action_name} - {action.doc}")
-                self._recursive_help(action, indent + 2, path, current_at, arg_values)
+                self._recursive_help(action, indent + 2)
 
-    def print_help(
-        self, error: str | None, path: PosixPath, current_at: ActionTree, arg_values: dict[str, Any]
-    ):
+    def print_help(self, error: str | None, path: PathValue, current_at: ActionTree):
         if error:
             self.print(f"Error: {error}")
         self.print("Usage: ")
         self.print(f"  {self.cli_name} {' '.join(path.parts[1:])}")
-        self._recursive_help(current_at, 2, path, current_at, arg_values)
+        self._recursive_help(current_at, 2)

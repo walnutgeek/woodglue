@@ -20,7 +20,7 @@ server_at = main_at.actions.add(Server)
 @server_at.actions.wrap
 def start(ctx: RunContext):
     """Starts the server in the foreground"""
-    print(f"Starting server with data: {ctx.get('/server')}")
+    print(f"Starting server with data: {ctx.path.get('/server')}")
 
 
 @server_at.actions.wrap
