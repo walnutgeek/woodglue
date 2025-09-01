@@ -6,9 +6,16 @@ import sys
 import time
 from inspect import isclass, iscoroutinefunction, isfunction, ismodule
 from types import ModuleType
-from typing import Any, Self, final
+from typing import Annotated, Any, Self, final
 
-from pydantic import BaseModel
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    GetCoreSchemaHandler,
+    PlainSerializer,
+    WithJsonSchema,
+)
+from pydantic_core import CoreSchema, core_schema
 from typing_extensions import override
 
 log = logging.getLogger(__name__)
@@ -106,6 +113,20 @@ class GlobalRef:
         assert not self.is_module(), f"{repr(self)}.get_module() only"
         attr = getattr(self.get_module(), self.name)
         return attr
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(cls, handler(str))
+
+
+GRef = Annotated[
+    GlobalRef,
+    PlainSerializer(str, return_type=str),
+    AfterValidator(GlobalRef),
+    WithJsonSchema({"type": "string"}, mode="serialization"),
+]
 
 
 @final

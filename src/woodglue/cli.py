@@ -8,13 +8,13 @@ from woodglue.annotated import ActionTree, Main, RunContext
 main_at = ActionTree(Main)
 
 
-class Server(BaseModel):
+class ServerAction(BaseModel):
     """Managing the server"""
 
     data: Path = Field(default=Path("./data"), description="directory to store all server data")
 
 
-server_at = main_at.actions.add(Server)
+server_at = main_at.actions.add(ServerAction)
 
 
 @server_at.actions.wrap
