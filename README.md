@@ -1,5 +1,7 @@
 # 🪵 WoodGlue
 
+![example workflow](https://github.com/walnutgeek/woodglue/actions/workflows/main.yml/badge.svg)
+
 > **Stronger than wood when used right**
 
 WoodGlue is a self-documenting, opinionated async server framework that hosts both logic and data. Like the finest wood glue that creates bonds stronger than the wood itself, WoodGlue creates connections more robust than traditional server architectures.
