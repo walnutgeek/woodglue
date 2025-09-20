@@ -1,6 +1,6 @@
 # 🪵 WoodGlue
 
-![example workflow](https://github.com/walnutgeek/woodglue/actions/workflows/main.yml/badge.svg)
+![example workflow](https://github.com/walnutgeek/woodglue/actions/workflows/ci.yml/badge.svg)
 
 > **Stronger than wood when used right**
 
