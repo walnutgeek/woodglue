@@ -1,0 +1,85 @@
+{
+    "apps": {
+      "http": {
+        "servers": {
+          "srv0": {
+            "@id": "v123.xyz",
+            "listen": [
+              ":443"
+            ],
+            "logs": {
+              "logger_names": {
+                "v123.xyz": [
+                  ""
+                ]
+              }
+            },
+            "routes": [
+              {
+                "handle": [
+                  {
+                    "handler": "subroute",
+                    "routes": [
+                      {
+                        "handle": [
+                          {
+                            "encodings": {
+                              "gzip": {},
+                              "zstd": {}
+                            },
+                            "handler": "encode",
+                            "prefer": [
+                              "zstd",
+                              "gzip"
+                            ]
+                          },
+                          {
+                            "handler": "reverse_proxy",
+                            "upstreams": [
+                              {
+                                "dial": "localhost:5555"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "match": [
+                  {
+                    "host": [
+                      "v123.xyz"
+                    ]
+                  }
+                ],
+                "terminal": true
+              }
+            ]
+          },
+          "srv1": {
+            "listen": [
+              ":80"
+            ],
+            "routes": [
+              {
+                "handle": [
+                  {
+                    "handler": "vars",
+                    "root": "/usr/share/caddy"
+                  },
+                  {
+                    "handler": "file_server",
+                    "hide": [
+                      "/etc/caddy/Caddyfile"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+  

@@ -1,0 +1,47 @@
+{
+    "apps": {
+      "http": {
+        "servers": {
+          "srv0": {
+            "@id": "site1.xyz",
+            "listen": [
+              ":443"
+            ],
+            "routes": [
+              {
+                "handle": [
+                  {
+                    "handler": "subroute",
+                    "routes": [
+                      {
+                        "handle": [
+                          {
+                            "handler": "vars",
+                            "root": "/var/www/site1"
+                          },
+                          {
+                            "handler": "file_server",
+                            "hide": [
+                              "/etc/caddy/Caddyfile"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "match": [
+                  {
+                    "host": [
+                      "site1.xyz"
+                    ]
+                  }
+                ],
+                "terminal": true
+              }
+            ]
+          }
+        }
+      }
+    }
+  }

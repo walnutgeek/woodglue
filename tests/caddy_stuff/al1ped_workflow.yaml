@@ -1,0 +1,15 @@
+frequency: 300
+globals:
+  checkout_dir: "data/al1ped"
+tasks:
+  - if: woodglue.utils.git:got_new_content
+    request:
+      repo: https://github.com/ivan-hilckov/al1ped.xyz.git
+      directory: "{checkout_dir}"
+    else: end_workflow
+  - task: woodglue.utils.caddy:ensure_static_site
+    request:
+      directory: "{checkout_dir}"
+      domains: ["al1ped.xyz"]
+      routes: {"":"dist"}
+
