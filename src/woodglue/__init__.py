@@ -148,7 +148,7 @@ class Logic:
                 self.call = self.instance = cls(config)
             else:
                 raise AssertionError(f"Invalid logic {ref} in config {config}")  # pragma: no cover
-        except:
+        except BaseException:
             log.error(f"Error in {config}")
             raise
 

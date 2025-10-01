@@ -3,7 +3,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 
-def ensure_dir(dir: Path) -> Path:
+def ensure_dir(dir: Path | str) -> Path:
+    dir = Path(dir)
     dir.mkdir(parents=True, exist_ok=True)
     return dir
 
@@ -13,7 +14,7 @@ def _tabula_rasa(p: Path | str, rm_logic: Callable[[Path], None]) -> Path:
     if p.exists():
         rm_logic(p)
     if not p.parent.is_dir():
-        p.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(p.parent)
     return p
 
 
