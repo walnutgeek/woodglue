@@ -41,7 +41,31 @@ Ready to start building? Check out our examples, contribute to the project, or j
 
 Just like the finest wood glue, WoodGlue works best when we work together. Let's build something amazing.
 
-## Apps
+## Key Blocks
+
+### Action
+
+Method that take one `BaseModel` argument, and return one.  Action may be invoked remotely via JSON-RPC within cluster by default, or can be exposed to as external API. Actions are building block of dataflow.
+
+### ActiveData action
+
+
+Decorated action with persistence logic. It cound be for temporary caching or long time storage. 
+
+### Workflow
+
+DAG of tasks. Task is any method Tasks has to take care of data storage.
+
+### Kits
+
+Kit is combination of tightly related actions, workflows, public API, and UI.
+
+### 
+
+
+
+
+
 
 
 

@@ -38,7 +38,7 @@ classifiers = [
 # ---- Main dependencies ----
 
 dependencies = [
-    "pydantic",
+    "lythonic",
     "pydantic-yaml",
     "polars",
     "tornado",

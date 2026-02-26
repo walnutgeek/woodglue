@@ -1,0 +1,16 @@
+frequency: 300
+paths:
+  checkout_dir: "z-wgl"
+tasks:
+  - if_task: woodglue.utils.git:got_new_content
+    request:
+      repo: git@github.com:walnutgeek/z-wgl.git
+      directory: "{checkout_dir}"
+    else: 
+      - end_workflow
+  - task: woodglue.utils.caddy:ensure_static_site
+    request:
+      directory: "{checkout_dir}"
+      domains: ["z-wgl.walnutgeek.com"]
+      routes: {"":"a", "api":"b"}
+

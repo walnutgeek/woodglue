@@ -8,7 +8,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
-from woodglue import GRef, JsonBase, encode_base64, ensure_bytes
+from lythonic import GRef
+from lythonic.types import JsonBase, encode_base64, ensure_bytes, json_loads
 
 
 class IdentityTrait:
@@ -158,4 +159,4 @@ class Grant(JsonBase):
         sig = base64.b64decode(sig.encode("utf-8"))
         if not verifier.verify(data, sig):
             return False, None
-        return True, Grant.from_json(data.decode("utf-8"))
+        return True, Grant.from_json(json_loads(data.decode("utf-8")))

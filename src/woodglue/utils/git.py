@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+from pydantic import BaseModel, DirectoryPath
+
 
 def check_if_git_is_installed() -> bool:
     try:
@@ -71,6 +73,25 @@ def get_status(cwd: Path | str = ".") -> tuple[bool, bool, str]:
     is_tree_clean = "nothing to commit, working tree clean" in msg
     return is_branch_up_to_date, is_tree_clean, msg
 
+
 def clean_working_tree(cwd: Path | str = ".") -> None:
     cwd = Path(cwd)
     subprocess.run(["git", "clean", "-fxd"], cwd=cwd)
+
+
+class GotNewContent(BaseModel):
+    repo: str
+    directory: DirectoryPath
+
+
+def got_new_content(req: GotNewContent) -> bool:
+    if not req.directory.is_dir() or check_if_git_repo(req.directory):
+        clone_repo(req.repo, req.directory)
+        return True
+    # assert check_if_git_repo(req.directory)
+
+    has_changes = check_if_remote_has_changes(req.directory)
+    clean_working_tree(req.directory)
+    reset_to_remote(req.directory)
+    pull_latest(req.directory)
+    return has_changes

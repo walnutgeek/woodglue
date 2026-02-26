@@ -3,9 +3,10 @@ from pathlib import Path
 import pytest
 
 import woodglue.utils.git as git
-from woodglue.misc import tabula_rasa_dir
+from lythonic.misc import tabula_rasa_path
 
-wg_dir: Path = tabula_rasa_dir("build/tests/git/woodglue")
+wg_dir: Path = tabula_rasa_path("build/tests/git/woodglue")
+
 
 @pytest.mark.debug
 def test_git():

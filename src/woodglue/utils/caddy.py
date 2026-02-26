@@ -1,7 +1,8 @@
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import requests
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, DirectoryPath, Field, field_validator
 
 
 class CaddyMatcherConfig(BaseModel):
@@ -12,17 +13,17 @@ class CaddyMatcherConfig(BaseModel):
 
 
 class FileServerHandler(BaseModel):
-    handler: Literal["file_server"]
-    root: None | str = Field(default=None)
+    handler: Literal["file_server"] = "file_server"
+    root: None | str | Path = Field(default=None)
 
 
 class SubrouteHandler(BaseModel):
-    handler: Literal["subroute"]
+    handler: Literal["subroute"] = "subroute"
     routes: list["RouteConfig"] = Field(default_factory=list)
 
 
 class EncodeHandler(BaseModel):
-    handler: Literal["encode"]
+    handler: Literal["encode"] = "encode"
     encodings: dict[str, dict[str, Any]]
     prefer: list[str] = Field(default_factory=list)
 
@@ -30,7 +31,7 @@ class EncodeHandler(BaseModel):
 class VarsHandler(BaseModel):
     model_config: ConfigDict = ConfigDict(extra="allow")  # pyright: ignore[reportIncompatibleVariableOverride]
 
-    handler: Literal["vars"]
+    handler: Literal["vars"] = "vars"
     # All additional properties will be captured in model_extra (Pydantic v2+) or .__pydantic_extra__
 
 
@@ -40,7 +41,7 @@ class Upstream(BaseModel):
 
 
 class ReverseProxyHandler(BaseModel):
-    handler: Literal["reverse_proxy"]
+    handler: Literal["reverse_proxy"] = "reverse_proxy"
     upstreams: list[Upstream] = Field(default_factory=list)
 
 
@@ -53,7 +54,7 @@ class ReverseProxyHandler(BaseModel):
 
 
 class StaticResponseHandler(BaseModel):
-    handler: Literal["static_response"]
+    handler: Literal["static_response"] = "static_response"
     body: str
 
 
@@ -66,6 +67,10 @@ Handler = Annotated[
     | StaticResponseHandler,
     Field(discriminator="handler"),
 ]
+
+
+def _hh(*hh: Handler) -> list[Handler]:
+    return list(hh)
 
 
 class RouteConfig(BaseModel):
@@ -102,8 +107,63 @@ class CaddyConfig(BaseModel):
 api_base_url = "http://localhost:2019"
 
 
+class EnsureStaticSite(BaseModel):
+    directory: DirectoryPath
+    domains: list[str]
+    routes: dict[str, str]
+
+    @field_validator("domains")
+    @classmethod
+    def validate_domains(cls, domains: list[str]) -> list[str]:
+        if not domains:
+            raise ValueError("At least one domain must be specified")
+        return domains
+
+    @field_validator("routes")
+    @classmethod
+    def validate_routes(cls, routes: dict[str, str]) -> dict[str, str]:
+        if not routes:
+            raise ValueError("At least one route must be specified")
+        return routes
+
+    @property
+    def server_id(self) -> str:
+        return self.domains[0]
+
+    def _route_config(self) -> RouteConfig:
+        return RouteConfig(
+            match=[CaddyMatcherConfig(host=self.domains)],
+            handle=_hh(
+                SubrouteHandler(
+                    routes=[
+                        RouteConfig(
+                            handle=_hh(
+                                FileServerHandler(handler="file_server", root=self.directory)
+                            )
+                        )
+                    ]
+                )
+            ),
+        )
+
+    def server_config(self) -> ServerConfig:
+        return ServerConfig(listen=[":433"], routes=[self._route_config()], id=self.server_id)  # pyright: ignore[reportCallIssue]
+
+
+def ensure_static_site(req: EnsureStaticSite) -> None:
+    config = get_caddy_config()
+    new_config = req.server_config()
+    if req.server_id in config.apps.http.servers:
+        print(
+            f"Replacing server {req.server_id}:\n{config.apps.http.servers[req.server_id]}\n   with new config:\n "
+        )
+    print(new_config)
+    set_caddy_config(new_config)
+
+
 def get_caddy_config() -> CaddyConfig:
     response = requests.get(f"{api_base_url}/config")
+    # print(response.text)
     return response.json()
 
 

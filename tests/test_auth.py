@@ -2,9 +2,9 @@ import time
 from datetime import datetime, timedelta
 
 from woodglue.auth import EntityPrivates, Grant, IdentityKey, Principal
-from woodglue.misc import tabula_rasa_dir
+from lythonic.misc import tabula_rasa_path
 
-ep_dirs = [tabula_rasa_dir(f"build/tests/auth/EntityPrivates/{i}") for i in range(1, 3)]
+ep_dirs = [tabula_rasa_path(f"build/tests/auth/EntityPrivates/{i}") for i in range(1, 3)]
 
 
 def test_EntityPrivates_and_Principal_roundtrip():
