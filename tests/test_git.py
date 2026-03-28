@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import pytest
+from lythonic.misc import tabula_rasa_path
 
 import woodglue.utils.git as git
-from lythonic.misc import tabula_rasa_path
 
 wg_dir: Path = tabula_rasa_path("build/tests/git/woodglue")
 

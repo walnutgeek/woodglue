@@ -2,10 +2,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
-
 from lythonic import GlobalRef
 from lythonic.compose import Method
+from pydantic import BaseModel, Field, model_validator
 
 Action = Literal["end_workflow", "skip_next_task"]
 

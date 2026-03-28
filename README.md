@@ -50,7 +50,7 @@ Method that take one `BaseModel` argument, and return one.  Action may be invoke
 ### ActiveData action
 
 
-Decorated action with persistence logic. It cound be for temporary caching or long time storage. 
+Decorated action with persistence logic. It could be for temporary caching or long time storage. 
 
 ### Workflow
 
