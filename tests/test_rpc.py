@@ -1,0 +1,123 @@
+"""Tests for woodglue.apps.rpc.JsonRpcHandler."""
+
+import json
+
+import tornado.testing
+
+from lythonic.compose.namespace import Namespace
+from woodglue.apps.server import create_app
+
+
+def sync_add(a: int, b: int) -> dict:
+    """Add two numbers and return a dict."""
+    return {"sum": a + b}
+
+
+async def async_greet(name: str) -> str:
+    """Greet someone asynchronously."""
+    return f"Hello, {name}!"
+
+
+def _make_namespace() -> Namespace:
+    ns = Namespace()
+    ns.register(sync_add, nsref="test:sync_add")
+    ns.register(async_greet, nsref="test:async_greet")
+    return ns
+
+
+def _rpc_body(method: str, params=None, request_id=1) -> str:
+    body: dict = {"jsonrpc": "2.0", "method": method}
+    if params is not None:
+        body["params"] = params
+    if request_id is not None:
+        body["id"] = request_id
+    return json.dumps(body)
+
+
+class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
+    def get_app(self):
+        ns = _make_namespace()
+        return create_app(config=None, namespace=ns)
+
+    def test_sync_function_call(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("test:sync_add", {"a": 3, "b": 4}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["result"] == {"sum": 7}
+        assert data["id"] == 1
+
+    def test_async_function_call(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("test:async_greet", {"name": "World"}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["result"] == "Hello, World!"
+        assert data["id"] == 1
+
+    def test_method_not_found(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("test:nonexistent", {}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["error"]["code"] == -32601
+
+    def test_parse_error_bad_json(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body="not json at all{{{",
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["error"]["code"] == -32700
+
+    def test_invalid_request_missing_method(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=json.dumps({"jsonrpc": "2.0", "id": 1}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["error"]["code"] == -32600
+
+    def test_missing_required_param(self):
+        # sync_add requires both a and b
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("test:sync_add", {"a": 1}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["error"]["code"] == -32602
+        assert "b" in data["error"]["message"]
+
+    def test_positional_params(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("test:sync_add", [10, 20]),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["result"] == {"sum": 30}
+
+    def test_notification_no_id(self):
+        body = json.dumps({"jsonrpc": "2.0", "method": "test:sync_add", "params": {"a": 1, "b": 2}})
+        resp = self.fetch("/rpc", method="POST", body=body)
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        # Should still return a result; id will be None
+        assert data["result"] == {"sum": 3}
+        assert data["id"] is None
