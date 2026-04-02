@@ -4,12 +4,12 @@
 
 .DEFAULT_GOAL := default
 
-.PHONY: default install lint test upgrade build clean
+.PHONY: default install lint test upgrade build clean docs docs-serve docs-deploy
 
 default: install lint test
 
 install:
-	uv sync --all-extras --dev
+	uv sync --all-extras
 
 lint:
 	uv run python devtools/lint.py
@@ -18,10 +18,11 @@ test:
 	uv run pytest
 
 upgrade:
-	uv sync --upgrade
+	uv sync --upgrade --all-extras --dev
 
 build:
 	uv build
+
 
 clean:
 	-rm -rf dist/
@@ -29,5 +30,15 @@ clean:
 	-rm -rf .pytest_cache/
 	-rm -rf .mypy_cache/
 	-rm -rf .venv/
-	-rm -rf build/
+	-rm -rf site/
 	-find . -type d -name "__pycache__" -exec rm -rf {} +
+
+# Documentation
+docs:
+	uv run --group docs mkdocs build
+
+docs-serve:
+	uv run --group docs mkdocs serve
+
+docs-deploy:
+	uv run --group docs mkdocs gh-deploy
