@@ -18,6 +18,7 @@ from pydantic import BaseModel
 # walk_namespace
 # ---------------------------------------------------------------------------
 
+
 def walk_namespace(ns: Namespace) -> Iterator[NamespaceNode]:
     """Recursively yield every NamespaceNode in *ns*."""
     for _name, node in ns._leaves.items():
@@ -29,6 +30,7 @@ def walk_namespace(ns: Namespace) -> Iterator[NamespaceNode]:
 # ---------------------------------------------------------------------------
 # python_type_to_schema
 # ---------------------------------------------------------------------------
+
 
 def python_type_to_schema(annotation: Any) -> dict:
     """Map a Python type annotation to a JSON Schema fragment."""
@@ -59,6 +61,7 @@ def _type_display(annotation: Any) -> str:
 # ---------------------------------------------------------------------------
 # generate_openapi_spec
 # ---------------------------------------------------------------------------
+
 
 def generate_openapi_spec(ns: Namespace) -> dict:
     """Build an OpenAPI 3.0.3 spec dict from a Namespace."""
@@ -146,6 +149,7 @@ def _json_safe_default(value: Any) -> Any:
 # Tornado handlers
 # ---------------------------------------------------------------------------
 
+
 class DocsHandler(tornado.web.RequestHandler):
     """GET /docs -> OpenAPI JSON spec."""
 
@@ -170,6 +174,7 @@ class DocsUiHandler(tornado.web.RequestHandler):
 # HTML generation helpers
 # ---------------------------------------------------------------------------
 
+
 def _build_methods_html(ns: Namespace) -> str:
     parts: list[str] = []
     for node in walk_namespace(ns):
@@ -179,7 +184,11 @@ def _build_methods_html(ns: Namespace) -> str:
 
         rows = ""
         for arg in m.args:
-            default_str = "" if (arg.default is None or arg.default is inspect.Parameter.empty) else html.escape(repr(arg.default))
+            default_str = (
+                ""
+                if (arg.default is None or arg.default is inspect.Parameter.empty)
+                else html.escape(repr(arg.default))
+            )
             rows += (
                 "<tr>"
                 f"<td>{html.escape(arg.name)}</td>"
@@ -191,14 +200,14 @@ def _build_methods_html(ns: Namespace) -> str:
 
         parts.append(
             f'<div class="method">'
-            f'<h2><code>POST /rpc/{html.escape(node.nsref)}</code></h2>'
+            f"<h2><code>POST /rpc/{html.escape(node.nsref)}</code></h2>"
             f'<p class="doc">{doc}</p>'
-            f'<table>'
-            f'<thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>'
-            f'<tbody>{rows}</tbody>'
-            f'</table>'
+            f"<table>"
+            f"<thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>"
+            f"<tbody>{rows}</tbody>"
+            f"</table>"
             f'<p class="ret">Returns: <code>{html.escape(ret)}</code></p>'
-            f'</div>'
+            f"</div>"
         )
     return "\n".join(parts)
 

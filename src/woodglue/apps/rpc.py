@@ -66,9 +66,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
 
         # Batch requests are not supported
         if isinstance(body, list):
-            self.write(
-                _error_response(INVALID_REQUEST, "Batch requests are not supported")
-            )
+            self.write(_error_response(INVALID_REQUEST, "Batch requests are not supported"))
             return
 
         request_id = body.get("id")
@@ -92,9 +90,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         try:
             node = ns.get(method)
         except KeyError:
-            self.write(
-                _error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id)
-            )
+            self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
             return
 
         # 4. Build kwargs from params
