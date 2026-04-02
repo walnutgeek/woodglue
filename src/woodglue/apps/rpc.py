@@ -35,11 +35,11 @@ def _error_response(code: int, message: str, request_id: Any = None) -> dict[str
 
 def _serialize_result(result: Any) -> Any:
     """Serialize a result for JSON-RPC response."""
-    if result is None or isinstance(result, (str, int, float, bool)):
+    if result is None or isinstance(result, str | int | float | bool):
         return result
     if isinstance(result, BaseModel):
         return result.model_dump(mode="json")
-    if isinstance(result, (list, dict)):
+    if isinstance(result, list | dict):
         return result
     return str(result)
 
@@ -105,7 +105,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         if params is not None:
             if isinstance(params, list):
                 # Positional params: zip with declared arg names
-                for arg_info, value in zip(method_args, params):
+                for arg_info, value in zip(method_args, params, strict=False):
                     kwargs[arg_info.name] = value
             elif isinstance(params, dict):
                 kwargs = dict(params)

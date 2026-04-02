@@ -6,14 +6,13 @@ from __future__ import annotations
 
 import html
 import inspect
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import tornado.web
-from pydantic import BaseModel
-
-from lythonic.compose import ArgInfo, Method
+from lythonic.compose import Method
 from lythonic.compose.namespace import Namespace, NamespaceNode
-
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # walk_namespace
@@ -21,7 +20,7 @@ from lythonic.compose.namespace import Namespace, NamespaceNode
 
 def walk_namespace(ns: Namespace, prefix: str = "") -> Iterator[NamespaceNode]:
     """Recursively yield every NamespaceNode in *ns*."""
-    for name, node in ns._leaves.items():
+    for _name, node in ns._leaves.items():
         yield node
     for branch_name, branch in ns._branches.items():
         new_prefix = f"{prefix}{branch_name}." if prefix else f"{branch_name}."
@@ -139,7 +138,7 @@ def generate_openapi_spec(ns: Namespace) -> dict:
 
 def _json_safe_default(value: Any) -> Any:
     """Return a JSON-serialisable representation of *value*."""
-    if isinstance(value, (str, int, float, bool, type(None))):
+    if isinstance(value, str | int | float | bool | type(None)):
         return value
     return str(value)
 
