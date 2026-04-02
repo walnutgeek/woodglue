@@ -25,8 +25,18 @@ In woodworking, the right glue applied correctly creates joints that are stronge
 # Install WoodGlue
 pip install woodglue
 
-# Run your server
-wgl server start 
+# Start the server with auto-discovered methods from your module
+wgl server start --module_path=mypackage.api
+
+# JSON-RPC call
+curl -X POST http://localhost:8888/rpc \
+  -d '{"jsonrpc":"2.0","method":"mypackage.api:my_function","params":{"name":"world"},"id":1}'
+
+# OpenAPI spec
+curl http://localhost:8888/docs
+
+# Human-readable API docs
+open http://localhost:8888/docs/ui
 ```
 
 ## Let's Build Something Together
