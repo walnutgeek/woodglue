@@ -10,6 +10,7 @@ attic/
 __pycache__/
 *.py[cod]
 *$py.class
+.sp/
 
 # C extensions
 *.so

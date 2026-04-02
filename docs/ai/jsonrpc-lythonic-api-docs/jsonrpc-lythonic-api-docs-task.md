@@ -42,7 +42,7 @@ lythonic `Namespace` (`lythonic/compose/namespace.py`) stores methods in a tree:
 
 **Namespace tree walking** — `ns._branches` and `ns._leaves` are dicts. Recursively walk `_branches` to collect all `NamespaceNode` leaves with their `nsref` paths.
 
-**Pydantic models in project** — `auth.py`, `service.py`, `workflow.py` all use `BaseModel` with `Field(description=...)`. Follow this pattern for JSON-RPC request/response models.
+**Pydantic models in project** — `auth.py`, `service.py` all use `BaseModel` with `Field(description=...)`. Follow this pattern for JSON-RPC request/response models.
 
 **Existing CLI pattern** — `cli.py` uses `ActionTree` from lythonic. `RunContext` provides `ctx.path` for config. The `start` function (line 19) receives `RunContext` — extract server config (port, host, namespace module path) from it.
 
@@ -87,7 +87,6 @@ Test pattern: pytest with `asyncio_mode = "auto"`, `--doctest-modules`, `--cov=s
 
 - `src/woodglue/cli.py:19-23` — server start command, integration point
 - `src/woodglue/auth.py` — Pydantic model patterns (Principal, Grant)
-- `src/woodglue/workflow.py` — GlobalRef + Method usage pattern
 - `.venv/lib/python3.12/site-packages/lythonic/compose/namespace.py` — Namespace, NamespaceNode
 - `.venv/lib/python3.12/site-packages/lythonic/compose/__init__.py` — Method, ArgInfo
 - `.venv/lib/python3.12/site-packages/lythonic/__init__.py` — GlobalRef

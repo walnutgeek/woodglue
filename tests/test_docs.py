@@ -4,6 +4,7 @@ import json
 
 import tornado.testing
 from lythonic.compose.namespace import Namespace
+from typing_extensions import override
 
 from woodglue.apps.server import create_app
 
@@ -26,6 +27,7 @@ def _make_namespace() -> Namespace:
 
 
 class TestDocs(tornado.testing.AsyncHTTPTestCase):
+    @override
     def get_app(self):
         return create_app(namespace=_make_namespace())
 

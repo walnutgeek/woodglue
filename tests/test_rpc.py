@@ -1,14 +1,16 @@
 """Tests for woodglue.apps.rpc.JsonRpcHandler."""
 
 import json
+from typing import Any
 
 import tornado.testing
 from lythonic.compose.namespace import Namespace
+from typing_extensions import override
 
 from woodglue.apps.server import create_app
 
 
-def sync_add(a: int, b: int) -> dict:
+def sync_add(a: int, b: int) -> dict[str, int]:
     """Add two numbers and return a dict."""
     return {"sum": a + b}
 
@@ -25,8 +27,8 @@ def _make_namespace() -> Namespace:
     return ns
 
 
-def _rpc_body(method: str, params=None, request_id=1) -> str:
-    body: dict = {"jsonrpc": "2.0", "method": method}
+def _rpc_body(method: str, params: Any = None, request_id: int | None = 1) -> str:
+    body: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
     if params is not None:
         body["params"] = params
     if request_id is not None:
@@ -35,6 +37,7 @@ def _rpc_body(method: str, params=None, request_id=1) -> str:
 
 
 class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
+    @override
     def get_app(self):
         ns = _make_namespace()
         return create_app(namespace=ns)

@@ -57,7 +57,7 @@
   3. `inspect.getmembers(mod, inspect.isfunction)` yields members; filter with `not name.startswith('_')`
   4. `ns.register(func)` registers each function — GlobalRef auto-derives `nsref` from `module:name`
   5. Return the populated Namespace
-- **Context:** `.venv/lib/python3.12/site-packages/lythonic/compose/namespace.py:180-216` (register method), `src/woodglue/workflow.py:1-6` (GlobalRef + Method import pattern)
+- **Context:** `.venv/lib/python3.12/site-packages/lythonic/compose/namespace.py:180-216` (register method)
 - **Verify:** `uv run python -c "from woodglue.apps.discovery import auto_discover; ns = auto_discover('json'); print(ns._leaves)"` — prints discovered functions
 
 ### Task 2: JSON-RPC handler
@@ -167,6 +167,5 @@
 
 - `src/woodglue/cli.py:19-23` — server start command, integration point
 - `src/woodglue/auth.py` — Pydantic model patterns (Principal, Grant)
-- `src/woodglue/workflow.py` — GlobalRef + Method usage pattern
 - `.venv/lib/python3.12/site-packages/lythonic/compose/namespace.py` — Namespace, NamespaceNode
 - `.venv/lib/python3.12/site-packages/lythonic/compose/__init__.py` — Method, ArgInfo

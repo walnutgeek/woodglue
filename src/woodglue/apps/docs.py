@@ -13,6 +13,7 @@ import tornado.web
 from lythonic.compose import Method
 from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
+from typing_extensions import override
 
 # ---------------------------------------------------------------------------
 # walk_namespace
@@ -21,9 +22,10 @@ from pydantic import BaseModel
 
 def walk_namespace(ns: Namespace) -> Iterator[NamespaceNode]:
     """Recursively yield every NamespaceNode in *ns*."""
-    for _name, node in ns._leaves.items():
+    # Namespace has no public iteration API; private attrs are the only option.
+    for _name, node in ns._leaves.items():  # pyright: ignore[reportPrivateUsage]
         yield node
-    for _branch_name, branch in ns._branches.items():
+    for _branch_name, branch in ns._branches.items():  # pyright: ignore[reportPrivateUsage]
         yield from walk_namespace(branch)
 
 
@@ -32,7 +34,7 @@ def walk_namespace(ns: Namespace) -> Iterator[NamespaceNode]:
 # ---------------------------------------------------------------------------
 
 
-def python_type_to_schema(annotation: Any) -> dict:
+def python_type_to_schema(annotation: Any) -> dict[str, Any]:
     """Map a Python type annotation to a JSON Schema fragment."""
     if annotation is None or annotation is inspect.Parameter.empty:
         return {"type": "string"}
@@ -63,7 +65,7 @@ def _type_display(annotation: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_openapi_spec(ns: Namespace) -> dict:
+def generate_openapi_spec(ns: Namespace) -> dict[str, Any]:
     """Build an OpenAPI 3.0.3 spec dict from a Namespace."""
     paths: dict[str, Any] = {}
 
@@ -153,6 +155,7 @@ def _json_safe_default(value: Any) -> Any:
 class DocsHandler(tornado.web.RequestHandler):
     """GET /docs -> OpenAPI JSON spec."""
 
+    @override
     def get(self) -> None:
         ns = self.application.settings["namespace"]
         self.set_header("Content-Type", "application/json")
@@ -162,6 +165,7 @@ class DocsHandler(tornado.web.RequestHandler):
 class DocsUiHandler(tornado.web.RequestHandler):
     """GET /docs/ui -> self-contained inline HTML docs page."""
 
+    @override
     def get(self) -> None:
         ns = self.application.settings["namespace"]
         methods_html = _build_methods_html(ns)

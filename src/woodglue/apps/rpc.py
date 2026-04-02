@@ -14,6 +14,7 @@ from typing import Any
 
 import tornado.web
 from pydantic import BaseModel
+from typing_extensions import override
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,11 @@ class JsonRpcHandler(tornado.web.RequestHandler):
     ``lythonic.compose.namespace.Namespace`` instance.
     """
 
+    @override
     def prepare(self) -> None:
         self.set_header("Content-Type", "application/json")
 
+    @override
     async def post(self) -> None:
         request_id: Any = None
 
