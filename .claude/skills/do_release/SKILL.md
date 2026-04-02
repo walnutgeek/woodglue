@@ -69,8 +69,9 @@ if it does not.
 After a release is properly tagged, the design docs are accessible via the tag.
 Delete them from main:
 ```bash
-git rm -r docs/superpowers
+git rm -r docs/superpowers 
+git rm -r docs/ai
 ```
-If `docs/superpowers` does not exist, skip this step.
+If `docs/superpowers` or `docs/ai` does not exist, skip that command.
 
 Commit and push.
