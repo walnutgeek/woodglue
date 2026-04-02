@@ -51,6 +51,9 @@ class JsonRpcHandler(tornado.web.RequestHandler):
     ``lythonic.compose.namespace.Namespace`` instance.
     """
 
+    def prepare(self) -> None:
+        self.set_header("Content-Type", "application/json")
+
     async def post(self) -> None:
         request_id: Any = None
 
@@ -58,13 +61,11 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         try:
             body = json.loads(self.request.body)
         except (json.JSONDecodeError, TypeError):
-            self.set_header("Content-Type", "application/json")
             self.write(_error_response(PARSE_ERROR, "Parse error"))
             return
 
-        # Batch requests are deferred
+        # Batch requests are not supported
         if isinstance(body, list):
-            self.set_header("Content-Type", "application/json")
             self.write(
                 _error_response(INVALID_REQUEST, "Batch requests are not supported")
             )
@@ -74,7 +75,6 @@ class JsonRpcHandler(tornado.web.RequestHandler):
 
         # 2. Validate required fields
         if not isinstance(body, dict) or body.get("jsonrpc") != "2.0" or "method" not in body:
-            self.set_header("Content-Type", "application/json")
             self.write(
                 _error_response(
                     INVALID_REQUEST,
@@ -92,7 +92,6 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         try:
             node = ns.get(method)
         except KeyError:
-            self.set_header("Content-Type", "application/json")
             self.write(
                 _error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id)
             )
@@ -110,7 +109,6 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             elif isinstance(params, dict):
                 kwargs = dict(params)
             else:
-                self.set_header("Content-Type", "application/json")
                 self.write(
                     _error_response(
                         INVALID_PARAMS,
@@ -123,7 +121,6 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         # 5. Validate required params
         for arg_info in method_args:
             if not arg_info.is_optional and arg_info.name not in kwargs:
-                self.set_header("Content-Type", "application/json")
                 self.write(
                     _error_response(
                         INVALID_PARAMS,
@@ -140,12 +137,10 @@ class JsonRpcHandler(tornado.web.RequestHandler):
                 result = await result
         except Exception:
             logger.exception("Internal error calling %s", method)
-            self.set_header("Content-Type", "application/json")
             self.write(_error_response(INTERNAL_ERROR, "Internal error", request_id))
             return
 
-        # 7. Serialize and return
-        self.set_header("Content-Type", "application/json")
+        # 7. Return result
         self.write(
             {
                 "jsonrpc": "2.0",

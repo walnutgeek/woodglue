@@ -3,8 +3,8 @@
 import json
 
 import tornado.testing
-
 from lythonic.compose.namespace import Namespace
+
 from woodglue.apps.server import create_app
 
 
@@ -27,7 +27,7 @@ def _make_namespace() -> Namespace:
 
 class TestDocs(tornado.testing.AsyncHTTPTestCase):
     def get_app(self):
-        return create_app(config=None, namespace=_make_namespace())
+        return create_app(namespace=_make_namespace())
 
     def test_docs_returns_valid_openapi_json(self):
         resp = self.fetch("/docs")

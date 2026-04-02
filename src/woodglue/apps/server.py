@@ -9,10 +9,9 @@ from woodglue.apps.docs import DocsHandler, DocsUiHandler
 from woodglue.apps.rpc import JsonRpcHandler
 
 
-def create_app(config: object, namespace: Namespace) -> tornado.web.Application:
+def create_app(namespace: Namespace) -> tornado.web.Application:
     """Build a Tornado Application with JSON-RPC, docs, and docs-UI routes.
 
-    *config* is currently unused but reserved for future settings.
     The *namespace* is stored in ``application.settings["namespace"]``
     so handlers can look it up at request time.
     """

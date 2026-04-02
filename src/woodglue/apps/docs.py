@@ -18,13 +18,12 @@ from pydantic import BaseModel
 # walk_namespace
 # ---------------------------------------------------------------------------
 
-def walk_namespace(ns: Namespace, prefix: str = "") -> Iterator[NamespaceNode]:
+def walk_namespace(ns: Namespace) -> Iterator[NamespaceNode]:
     """Recursively yield every NamespaceNode in *ns*."""
     for _name, node in ns._leaves.items():
         yield node
-    for branch_name, branch in ns._branches.items():
-        new_prefix = f"{prefix}{branch_name}." if prefix else f"{branch_name}."
-        yield from walk_namespace(branch, new_prefix)
+    for _branch_name, branch in ns._branches.items():
+        yield from walk_namespace(branch)
 
 
 # ---------------------------------------------------------------------------

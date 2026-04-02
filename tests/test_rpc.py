@@ -3,8 +3,8 @@
 import json
 
 import tornado.testing
-
 from lythonic.compose.namespace import Namespace
+
 from woodglue.apps.server import create_app
 
 
@@ -37,7 +37,7 @@ def _rpc_body(method: str, params=None, request_id=1) -> str:
 class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
     def get_app(self):
         ns = _make_namespace()
-        return create_app(config=None, namespace=ns)
+        return create_app(namespace=ns)
 
     def test_sync_function_call(self):
         resp = self.fetch(

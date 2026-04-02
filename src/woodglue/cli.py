@@ -23,26 +23,25 @@ server_at = main_at.actions.add(Server)
 def start(ctx: RunContext):
     """Starts the server in the foreground"""
     import tornado.ioloop
+    from lythonic.compose.namespace import Namespace
 
     from woodglue.apps.discovery import auto_discover
     from woodglue.apps.server import create_app
 
-    from lythonic.compose.namespace import Namespace
-
-    config = ctx.path.get("/server")
-    ns = auto_discover(config.module_path) if config.module_path else Namespace()
-    app = create_app(config, ns)
-    app.listen(config.port, config.host)
-    print(f"Woodglue server listening on http://{config.host}:{config.port}")
-    print(f"  RPC endpoint: http://{config.host}:{config.port}/rpc")
-    print(f"  API docs:     http://{config.host}:{config.port}/docs/ui")
+    server_cfg = ctx.path.get("/server")
+    ns = auto_discover(server_cfg.module_path) if server_cfg.module_path else Namespace()
+    app = create_app(ns)
+    app.listen(server_cfg.port, server_cfg.host)
+    print(f"Woodglue server listening on http://{server_cfg.host}:{server_cfg.port}")
+    print(f"  RPC endpoint: http://{server_cfg.host}:{server_cfg.port}/rpc")
+    print(f"  API docs:     http://{server_cfg.host}:{server_cfg.port}/docs/ui")
     tornado.ioloop.IOLoop.current().start()
 
 
 @server_at.actions.wrap
 def stop():
     """Stops the server"""
-    print("stopping server ")
+    print("stopping server")
 
 
 def main():
