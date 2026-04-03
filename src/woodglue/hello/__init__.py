@@ -1,5 +1,5 @@
 from lythonic.compose.namespace import Namespace
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def hello(name: str) -> int:
@@ -16,7 +16,7 @@ class HelloIn(BaseModel):
 
 
 class HelloOut(BaseModel):
-    eman: str
+    eman: str = Field(default="enon", description="inversed name")
     ega: int
 
 
