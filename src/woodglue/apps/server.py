@@ -8,6 +8,7 @@ from typing import Any
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
+from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
 from woodglue.config import WoodglueConfig
 
@@ -23,6 +24,8 @@ def create_app(
     """
     if config is None:
         config = WoodglueConfig(namespaces={})
+
+    method_index = build_method_index(namespaces)
 
     handlers: list[Any] = [
         (r"/rpc", JsonRpcHandler),
@@ -50,5 +53,6 @@ def create_app(
     return tornado.web.Application(
         handlers,
         namespaces=namespaces,
+        method_index=method_index,
         config=config,
     )

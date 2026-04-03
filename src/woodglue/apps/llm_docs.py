@@ -33,6 +33,24 @@ def walk_namespace(ns: Namespace) -> list[tuple[str, NamespaceNode]]:
     return result
 
 
+def build_method_index(
+    namespaces: dict[str, Namespace],
+) -> dict[str, dict[str, NamespaceNode]]:
+    """
+    Build a flat lookup: `{prefix: {leaf_name: node}}`.
+
+    This resolves the nested namespace structure into a simple two-level
+    dict suitable for both RPC dispatch and documentation generation.
+    """
+    index: dict[str, dict[str, NamespaceNode]] = {}
+    for prefix, ns in namespaces.items():
+        methods: dict[str, NamespaceNode] = {}
+        for leaf_name, node in walk_namespace(ns):
+            methods[leaf_name] = node
+        index[prefix] = methods
+    return index
+
+
 def _docstring_teaser(doc: str | None) -> str:
     """Extract the first line of a docstring as a teaser."""
     if not doc:
@@ -142,11 +160,10 @@ def generate_llms_txt(namespaces: dict[str, Namespace]) -> str:
 # ---- Per-method markdown generation ----
 
 
-def generate_method_markdown(prefix: str, method_name: str, ns: Namespace) -> str:
+def generate_method_markdown(prefix: str, method_name: str, node: NamespaceNode) -> str:
     """
     Generate full markdown documentation for a single method.
     """
-    node = ns.get(method_name)
     method = node.method
     qualified = f"{prefix}.{method_name}"
 
@@ -306,7 +323,9 @@ class MethodDocHandler(tornado.web.RequestHandler):
 
     @override
     def get(self, filename: str) -> None:
-        namespaces: dict[str, Namespace] = self.application.settings["namespaces"]
+        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
+            "method_index"
+        ]
 
         if not filename.endswith(".md"):
             raise tornado.web.HTTPError(404)
@@ -319,15 +338,15 @@ class MethodDocHandler(tornado.web.RequestHandler):
         prefix = name[:dot_pos]
         method_name = name[dot_pos + 1 :]
 
-        ns = namespaces.get(prefix)
-        if ns is None:
+        methods = method_index.get(prefix)
+        if methods is None:
             raise tornado.web.HTTPError(404)
 
-        try:
-            md = generate_method_markdown(prefix, method_name, ns)
-        except KeyError:
-            raise tornado.web.HTTPError(404) from None
+        node = methods.get(method_name)
+        if node is None:
+            raise tornado.web.HTTPError(404)
 
+        md = generate_method_markdown(prefix, method_name, node)
         self.set_header("Content-Type", "text/markdown; charset=utf-8")
         self.write(md)
 

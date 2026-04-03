@@ -13,7 +13,6 @@ import logging
 from typing import Any
 
 import tornado.web
-from lythonic.compose.namespace import Namespace
 from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
@@ -92,7 +91,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         params: Any = body.get("params")
 
         # Resolve namespace and method via dot prefix
-        namespaces: dict[str, Namespace] = self.application.settings["namespaces"]
+        method_index: dict[str, dict[str, Any]] = self.application.settings["method_index"]
 
         dot_pos = method.find(".")
         if dot_pos < 0:
@@ -102,14 +101,13 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         prefix = method[:dot_pos]
         method_name = method[dot_pos + 1 :]
 
-        ns = namespaces.get(prefix)
-        if ns is None:
+        methods = method_index.get(prefix)
+        if methods is None:
             self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
             return
 
-        try:
-            node = ns.get(method_name)
-        except KeyError:
+        node = methods.get(method_name)
+        if node is None:
             self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
             return
 

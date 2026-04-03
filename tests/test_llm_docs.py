@@ -4,6 +4,7 @@ from lythonic.compose.namespace import Namespace
 from pydantic import BaseModel
 
 from woodglue.apps.llm_docs import (
+    build_method_index,
     generate_llms_txt,
     generate_method_markdown,
     generate_openapi_spec,
@@ -66,7 +67,8 @@ def test_generate_llms_txt_no_docstring():
 
 def test_generate_method_markdown_with_basemodel():
     namespaces = _make_namespaces()
-    md = generate_method_markdown("items", "create_item", namespaces["items"])
+    index = build_method_index(namespaces)
+    md = generate_method_markdown("items", "create_item", index["items"]["create_item"])
     assert "# items.create_item" in md
     assert "Create an item from input." in md
     assert "## Parameters" in md
@@ -84,7 +86,8 @@ def test_generate_method_markdown_with_basemodel():
 
 def test_generate_method_markdown_simple_types():
     namespaces = _make_namespaces()
-    md = generate_method_markdown("math", "simple_add", namespaces["math"])
+    index = build_method_index(namespaces)
+    md = generate_method_markdown("math", "simple_add", index["math"]["simple_add"])
     assert "# math.simple_add" in md
     assert "## Parameters" in md
     assert "| a | int |" in md
