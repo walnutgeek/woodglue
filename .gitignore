@@ -21,6 +21,7 @@ build/
 develop-eggs/
 data/
 dist/
+!src/woodglue/ui/dist/
 downloads/
 eggs/
 .eggs/
