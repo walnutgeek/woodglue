@@ -1,15 +1,53 @@
-# from pathlib import Path
+"""
+YAML-backed server configuration.
 
-# from pydantic import BaseModel
+The config file lives at `{data_dir}/woodglue.yaml` and is required to run
+the server. It declares namespaces, documentation, and UI settings.
+"""
 
-# # _section_classes = {
-# #     "workflows": Workflow,
-# #     "dataflows": Dataflow,
-# #     "actions": Action,
-# #     "apps": App,
-# # }
+from __future__ import annotations
 
-# # def _load_section(section_dir: Path, ) -> BaseModel:
+from pathlib import Path
 
-# # def load_config(config_dir: Path) -> Config:
-# #     pass
+from pydantic import BaseModel
+from pydantic_yaml import parse_yaml_file_as
+
+CONFIG_FILENAME = "woodglue.yaml"
+
+
+class DocsConfig(BaseModel):
+    """Documentation generation settings."""
+
+    enabled: bool = True
+    openapi: bool = True
+
+
+class UiConfig(BaseModel):
+    """JavaScript documentation UI settings."""
+
+    enabled: bool = True
+
+
+class WoodglueConfig(BaseModel):
+    """
+    Root configuration loaded from `woodglue.yaml`.
+
+    `namespaces` maps a prefix string to a Python module path in
+    `"module.path:attribute"` format (a lythonic `GlobalRef`).
+    """
+
+    namespaces: dict[str, str]
+    docs: DocsConfig = DocsConfig()
+    ui: UiConfig = UiConfig()
+
+
+def load_config(data_dir: Path) -> WoodglueConfig:
+    """
+    Load `WoodglueConfig` from `{data_dir}/woodglue.yaml`.
+
+    Raises `FileNotFoundError` if the file does not exist.
+    """
+    config_path = data_dir / CONFIG_FILENAME
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    return parse_yaml_file_as(WoodglueConfig, config_path)
