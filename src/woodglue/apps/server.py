@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
@@ -21,9 +23,17 @@ def create_app(
     if config is None:
         config = WoodglueConfig(namespaces={})
 
-    handlers: list[tuple[str, type[tornado.web.RequestHandler]]] = [
+    handlers: list[Any] = [
         (r"/rpc", JsonRpcHandler),
     ]
+
+    if config.docs.enabled:
+        from woodglue.apps.llm_docs import LlmsTxtHandler, MethodDocHandler, OpenApiHandler
+
+        handlers.append((r"/docs/llms\.txt", LlmsTxtHandler))
+        handlers.append((r"/docs/methods/(.+)", MethodDocHandler))
+        if config.docs.openapi:
+            handlers.append((r"/docs/openapi\.json", OpenApiHandler))
 
     return tornado.web.Application(
         handlers,
