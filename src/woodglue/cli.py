@@ -13,7 +13,7 @@ class Server(BaseModel):
     """Managing the server"""
 
     data: Path = Field(default=Path("./data"), description="directory to store all server data")
-    port: int = Field(default=8888, description="port to listen on")
+    port: int = Field(default=5321, description="port to listen on")
     host: str = Field(default="127.0.0.1", description="host to bind to")
     module_path: str = Field(
         default="", description="Python module path to auto-discover methods from"

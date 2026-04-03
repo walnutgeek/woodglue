@@ -40,8 +40,10 @@ def _serialize_result(result: Any) -> Any:
         return result
     if isinstance(result, BaseModel):
         return result.model_dump(mode="json")
-    if isinstance(result, list | dict):
-        return result
+    if isinstance(result, list):
+        return list(map(_serialize_result, result))
+    if isinstance(result, dict):
+        return {_serialize_result(k): _serialize_result(v) for k, v in result.items()}
     return str(result)
 
 
