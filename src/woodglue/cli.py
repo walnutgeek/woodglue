@@ -40,7 +40,7 @@ def start(ctx: RunContext):  # pyright: ignore[reportUnusedParameter]
     server_cfg = ctx.path.get("/server")
     assert isinstance(server_cfg, Server)
     ns = load_ns(server_cfg.module_path) if server_cfg.module_path else Namespace()
-    app = create_app(ns)
+    app = create_app(namespaces={"default": ns})
     app.listen(server_cfg.port, server_cfg.host)
     print(f"Woodglue server listening on http://{server_cfg.host}:{server_cfg.port}")
     print(f"  RPC endpoint: http://{server_cfg.host}:{server_cfg.port}/rpc")

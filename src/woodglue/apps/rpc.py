@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 import tornado.web
+from lythonic.compose.namespace import Namespace
 from pydantic import BaseModel
 from typing_extensions import override
 
@@ -50,8 +51,8 @@ def _serialize_result(result: Any) -> Any:
 class JsonRpcHandler(tornado.web.RequestHandler):
     """Tornado handler that speaks JSON-RPC 2.0 over HTTP POST.
 
-    Expects ``self.application.settings['namespace']`` to be a
-    ``lythonic.compose.namespace.Namespace`` instance.
+    Expects ``self.application.settings['namespaces']`` to be a dict mapping
+    prefix strings to ``lythonic.compose.namespace.Namespace`` instances.
     """
 
     @override
@@ -90,10 +91,24 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         method: str = body["method"]
         params: Any = body.get("params")
 
-        # 3. Look up method in namespace
-        ns = self.application.settings["namespace"]  # type: ignore[union-attr]
+        # 3. Resolve namespace and method via dot prefix
+        namespaces: dict[str, Namespace] = self.application.settings["namespaces"]
+
+        dot_pos = method.find(".")
+        if dot_pos < 0:
+            self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
+            return
+
+        prefix = method[:dot_pos]
+        method_name = method[dot_pos + 1 :]
+
+        ns = namespaces.get(prefix)
+        if ns is None:
+            self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
+            return
+
         try:
-            node = ns.get(method)
+            node = ns.get(method_name)
         except KeyError:
             self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
             return
@@ -131,7 +146,16 @@ class JsonRpcHandler(tornado.web.RequestHandler):
                 )
                 return
 
-        # 6. Call the method
+        # 6. Deserialize BaseModel params
+        for arg_info in method_args:
+            if (
+                arg_info.name in kwargs
+                and isinstance(arg_info.annotation, type)
+                and issubclass(arg_info.annotation, BaseModel)
+            ):
+                kwargs[arg_info.name] = arg_info.annotation.model_validate(kwargs[arg_info.name])
+
+        # 7. Call the method
         try:
             result = node(**kwargs)
             if inspect.isawaitable(result):
@@ -141,7 +165,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             self.write(_error_response(INTERNAL_ERROR, "Internal error", request_id))
             return
 
-        # 7. Return result
+        # 8. Return result
         self.write(
             {
                 "jsonrpc": "2.0",

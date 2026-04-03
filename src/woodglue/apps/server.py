@@ -5,21 +5,28 @@ from __future__ import annotations
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
-from woodglue.apps.docs import DocsHandler, DocsUiHandler
 from woodglue.apps.rpc import JsonRpcHandler
+from woodglue.config import WoodglueConfig
 
 
-def create_app(namespace: Namespace) -> tornado.web.Application:
-    """Build a Tornado Application with JSON-RPC, docs, and docs-UI routes.
-
-    The *namespace* is stored in ``application.settings["namespace"]``
-    so handlers can look it up at request time.
+def create_app(
+    namespaces: dict[str, Namespace],
+    config: WoodglueConfig | None = None,
+) -> tornado.web.Application:
     """
+    Build a Tornado Application with JSON-RPC and optional docs/UI routes.
+
+    `namespaces` maps prefix strings to loaded Namespace instances.
+    """
+    if config is None:
+        config = WoodglueConfig(namespaces={})
+
+    handlers: list[tuple[str, type[tornado.web.RequestHandler]]] = [
+        (r"/rpc", JsonRpcHandler),
+    ]
+
     return tornado.web.Application(
-        [
-            (r"/rpc", JsonRpcHandler),
-            (r"/docs", DocsHandler),
-            (r"/docs/ui", DocsUiHandler),
-        ],
-        namespace=namespace,
+        handlers,
+        namespaces=namespaces,
+        config=config,
     )

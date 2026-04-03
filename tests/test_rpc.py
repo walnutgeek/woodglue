@@ -8,6 +8,7 @@ from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
+from woodglue.hello import pydantic_hello
 
 
 def sync_add(a: int, b: int) -> dict[str, int]:
@@ -22,8 +23,8 @@ async def async_greet(name: str) -> str:
 
 def _make_namespace() -> Namespace:
     ns = Namespace()
-    ns.register(sync_add, nsref="test:sync_add")
-    ns.register(async_greet, nsref="test:async_greet")
+    ns.register(sync_add, nsref="sync_add")
+    ns.register(async_greet, nsref="async_greet")
     return ns
 
 
@@ -40,13 +41,13 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
         ns = _make_namespace()
-        return create_app(namespace=ns)
+        return create_app(namespaces={"test": ns})
 
     def test_sync_function_call(self):
         resp = self.fetch(
             "/rpc",
             method="POST",
-            body=_rpc_body("test:sync_add", {"a": 3, "b": 4}),
+            body=_rpc_body("test.sync_add", {"a": 3, "b": 4}),
         )
         assert resp.code == 200
         data = json.loads(resp.body)
@@ -57,7 +58,7 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
         resp = self.fetch(
             "/rpc",
             method="POST",
-            body=_rpc_body("test:async_greet", {"name": "World"}),
+            body=_rpc_body("test.async_greet", {"name": "World"}),
         )
         assert resp.code == 200
         data = json.loads(resp.body)
@@ -68,7 +69,7 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
         resp = self.fetch(
             "/rpc",
             method="POST",
-            body=_rpc_body("test:nonexistent", {}),
+            body=_rpc_body("test.nonexistent", {}),
         )
         assert resp.code == 200
         data = json.loads(resp.body)
@@ -99,7 +100,7 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
         resp = self.fetch(
             "/rpc",
             method="POST",
-            body=_rpc_body("test:sync_add", {"a": 1}),
+            body=_rpc_body("test.sync_add", {"a": 1}),
         )
         assert resp.code == 200
         data = json.loads(resp.body)
@@ -110,17 +111,75 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
         resp = self.fetch(
             "/rpc",
             method="POST",
-            body=_rpc_body("test:sync_add", [10, 20]),
+            body=_rpc_body("test.sync_add", [10, 20]),
         )
         assert resp.code == 200
         data = json.loads(resp.body)
         assert data["result"] == {"sum": 30}
 
     def test_notification_no_id(self):
-        body = json.dumps({"jsonrpc": "2.0", "method": "test:sync_add", "params": {"a": 1, "b": 2}})
+        body = json.dumps({"jsonrpc": "2.0", "method": "test.sync_add", "params": {"a": 1, "b": 2}})
         resp = self.fetch("/rpc", method="POST", body=body)
         assert resp.code == 200
         data = json.loads(resp.body)
         # Should still return a result; id will be None
         assert data["result"] == {"sum": 3}
         assert data["id"] is None
+
+
+def _make_multi_namespace() -> dict[str, Namespace]:
+    ns1 = Namespace()
+    ns1.register(sync_add, nsref="sync_add")
+    ns1.register(async_greet, nsref="async_greet")
+
+    ns2 = Namespace()
+    ns2.register(pydantic_hello, nsref="pydantic_hello")
+
+    return {"test": ns1, "hello": ns2}
+
+
+class TestMultiNamespaceRpc(tornado.testing.AsyncHTTPTestCase):
+    @override
+    def get_app(self):
+        namespaces = _make_multi_namespace()
+        return create_app(namespaces=namespaces)
+
+    def test_call_method_in_first_namespace(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("test.sync_add", {"a": 5, "b": 3}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["result"] == {"sum": 8}
+
+    def test_call_method_in_second_namespace(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("hello.pydantic_hello", {"input": {"name": "Alice", "age": 30}}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["result"] == {"eman": "ecilA", "ega": -30}
+
+    def test_method_without_prefix_returns_not_found(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("sync_add", {"a": 1, "b": 2}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["error"]["code"] == -32601
+
+    def test_unknown_prefix_returns_not_found(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("bogus.sync_add", {"a": 1, "b": 2}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["error"]["code"] == -32601
