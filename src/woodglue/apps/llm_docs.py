@@ -19,14 +19,18 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 
-def walk_namespace(ns: Namespace) -> list[NamespaceNode]:
-    """Yield every NamespaceNode in `ns`, recursively."""
-    nodes: list[NamespaceNode] = []
-    for _name, node in ns._leaves.items():  # pyright: ignore[reportPrivateUsage]
-        nodes.append(node)
+def walk_namespace(ns: Namespace) -> list[tuple[str, NamespaceNode]]:
+    """
+    Return `(leaf_name, node)` pairs for every NamespaceNode in `ns`,
+    recursively. `leaf_name` is the short key in the namespace, not the
+    full module-qualified nsref.
+    """
+    result: list[tuple[str, NamespaceNode]] = []
+    for name, node in ns._leaves.items():  # pyright: ignore[reportPrivateUsage]
+        result.append((name, node))
     for _branch_name, branch in ns._branches.items():  # pyright: ignore[reportPrivateUsage]
-        nodes.extend(walk_namespace(branch))
-    return nodes
+        result.extend(walk_namespace(branch))
+    return result
 
 
 def _docstring_teaser(doc: str | None) -> str:
@@ -124,9 +128,9 @@ def generate_llms_txt(namespaces: dict[str, Namespace]) -> str:
 
     for prefix in sorted(namespaces):
         ns = namespaces[prefix]
-        for node in walk_namespace(ns):
+        for leaf_name, node in walk_namespace(ns):
             teaser = _docstring_teaser(node.method.doc)
-            qualified = f"{prefix}.{node.nsref}"
+            qualified = f"{prefix}.{leaf_name}"
             if teaser:
                 lines.append(f"- {qualified}: {teaser}")
             else:
@@ -216,9 +220,9 @@ def generate_openapi_spec(namespaces: dict[str, Namespace]) -> dict[str, Any]:
 
     for prefix in sorted(namespaces):
         ns = namespaces[prefix]
-        for node in walk_namespace(ns):
+        for leaf_name, node in walk_namespace(ns):
             method = node.method
-            qualified = f"{prefix}.{node.nsref}"
+            qualified = f"{prefix}.{leaf_name}"
             path = f"/rpc/{qualified}"
 
             properties: dict[str, Any] = {}
