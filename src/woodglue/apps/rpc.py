@@ -14,7 +14,7 @@ from typing import Any
 
 import tornado.web
 from lythonic.compose.namespace import Namespace
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
     async def post(self) -> None:
         request_id: Any = None
 
-        # 1. Parse JSON body
+        # Parse JSON body
         try:
             body = json.loads(self.request.body)
         except (json.JSONDecodeError, TypeError):
@@ -77,7 +77,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
 
         request_id = body.get("id")
 
-        # 2. Validate required fields
+        # Validate required fields
         if not isinstance(body, dict) or body.get("jsonrpc") != "2.0" or "method" not in body:
             self.write(
                 _error_response(
@@ -91,7 +91,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         method: str = body["method"]
         params: Any = body.get("params")
 
-        # 3. Resolve namespace and method via dot prefix
+        # Resolve namespace and method via dot prefix
         namespaces: dict[str, Namespace] = self.application.settings["namespaces"]
 
         dot_pos = method.find(".")
@@ -113,7 +113,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
             return
 
-        # 4. Build kwargs from params
+        # Build kwargs from params
         kwargs: dict[str, Any] = {}
         method_args = node.method.args
 
@@ -134,7 +134,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
                 )
                 return
 
-        # 5. Validate required params
+        # Validate required params
         for arg_info in method_args:
             if not arg_info.is_optional and arg_info.name not in kwargs:
                 self.write(
@@ -146,16 +146,28 @@ class JsonRpcHandler(tornado.web.RequestHandler):
                 )
                 return
 
-        # 6. Deserialize BaseModel params
-        for arg_info in method_args:
-            if (
-                arg_info.name in kwargs
-                and isinstance(arg_info.annotation, type)
-                and issubclass(arg_info.annotation, BaseModel)
-            ):
-                kwargs[arg_info.name] = arg_info.annotation.model_validate(kwargs[arg_info.name])
+        # Deserialize BaseModel params
+        try:
+            for arg_info in method_args:
+                if (
+                    arg_info.name in kwargs
+                    and isinstance(arg_info.annotation, type)
+                    and issubclass(arg_info.annotation, BaseModel)
+                ):
+                    kwargs[arg_info.name] = arg_info.annotation.model_validate(
+                        kwargs[arg_info.name]
+                    )
+        except ValidationError as exc:
+            self.write(
+                _error_response(
+                    INVALID_PARAMS,
+                    f"Invalid parameters: {exc}",
+                    request_id,
+                )
+            )
+            return
 
-        # 7. Call the method
+        # Call the method
         try:
             result = node(**kwargs)
             if inspect.isawaitable(result):
@@ -165,7 +177,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             self.write(_error_response(INTERNAL_ERROR, "Internal error", request_id))
             return
 
-        # 8. Return result
+        # Return result
         self.write(
             {
                 "jsonrpc": "2.0",
