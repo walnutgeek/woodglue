@@ -1,0 +1,9 @@
+namespaces:
+  hello: "woodglue.hello:ns"
+
+docs:
+  enabled: true
+  openapi: true
+
+ui:
+  enabled: true
