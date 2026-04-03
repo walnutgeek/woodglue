@@ -5,10 +5,20 @@ from typing import Any
 
 import tornado.testing
 from lythonic.compose.namespace import Namespace
+from pydantic import BaseModel as PydanticBaseModel
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
 from woodglue.hello import pydantic_hello
+
+
+class Inner(PydanticBaseModel):
+    value: int
+
+
+class Outer(PydanticBaseModel):
+    inner: Inner
+    label: str
 
 
 def sync_add(a: int, b: int) -> dict[str, int]:
@@ -19,6 +29,11 @@ def sync_add(a: int, b: int) -> dict[str, int]:
 async def async_greet(name: str) -> str:
     """Greet someone asynchronously."""
     return f"Hello, {name}!"
+
+
+def nested_output(x: int) -> Outer:
+    """Return nested BaseModel."""
+    return Outer(inner=Inner(value=x), label=f"item-{x}")
 
 
 def _make_namespace() -> Namespace:
@@ -134,6 +149,7 @@ def _make_multi_namespace() -> dict[str, Namespace]:
 
     ns2 = Namespace()
     ns2.register(pydantic_hello, nsref="pydantic_hello")
+    ns2.register(nested_output, nsref="nested_output")
 
     return {"test": ns1, "hello": ns2}
 
@@ -173,6 +189,16 @@ class TestMultiNamespaceRpc(tornado.testing.AsyncHTTPTestCase):
         assert resp.code == 200
         data = json.loads(resp.body)
         assert data["error"]["code"] == -32601
+
+    def test_nested_basemodel_output(self):
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=_rpc_body("hello.nested_output", {"x": 42}),
+        )
+        assert resp.code == 200
+        data = json.loads(resp.body)
+        assert data["result"] == {"inner": {"value": 42}, "label": "item-42"}
 
     def test_unknown_prefix_returns_not_found(self):
         resp = self.fetch(
