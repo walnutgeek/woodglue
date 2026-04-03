@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := default
 
-.PHONY: default install lint test upgrade build clean docs docs-serve docs-deploy
+.PHONY: default install lint test upgrade build clean docs docs-serve docs-deploy ui-build
 
 default: install lint test
 
@@ -23,6 +23,9 @@ upgrade:
 build:
 	uv build
 
+
+ui-build:
+	cd src/woodglue/ui && npm install && npx vite build
 
 clean:
 	-rm -rf dist/

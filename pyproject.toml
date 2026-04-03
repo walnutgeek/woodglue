@@ -175,7 +175,7 @@ reportUnknownMemberType = false
 [tool.codespell]
 # Add here as needed:
 # ignore-words-list = "foo,bar"
-# skip = "foo.py,bar.py"
+skip = "node_modules,src/woodglue/ui/dist"
 
 [tool.pytest.ini_options]
 python_files = ["*.py"]

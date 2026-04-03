@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import tornado.web
@@ -34,6 +35,17 @@ def create_app(
         handlers.append((r"/docs/methods/(.+)", MethodDocHandler))
         if config.docs.openapi:
             handlers.append((r"/docs/openapi\.json", OpenApiHandler))
+
+    if config.ui.enabled:
+        ui_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
+        if ui_dist.is_dir():
+            handlers.append(
+                (
+                    r"/ui/(.*)",
+                    tornado.web.StaticFileHandler,
+                    {"path": str(ui_dist), "default_filename": "index.html"},
+                )
+            )
 
     return tornado.web.Application(
         handlers,
