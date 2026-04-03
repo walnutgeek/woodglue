@@ -149,10 +149,11 @@ def generate_llms_txt(namespaces: dict[str, Namespace]) -> str:
         for leaf_name, node in walk_namespace(ns):
             teaser = _docstring_teaser(node.method.doc)
             qualified = f"{prefix}.{leaf_name}"
+            doc_link = f"/docs/methods/{qualified}.md"
             if teaser:
-                lines.append(f"- {qualified}: {teaser}")
+                lines.append(f"- [{qualified}]({doc_link}): {teaser}")
             else:
-                lines.append(f"- {qualified}:")
+                lines.append(f"- [{qualified}]({doc_link})")
     lines.append("")
     return "\n".join(lines)
 

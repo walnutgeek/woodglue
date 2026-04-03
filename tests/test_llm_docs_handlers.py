@@ -40,7 +40,7 @@ class TestLlmDocsHandlers(tornado.testing.AsyncHTTPTestCase):
         assert resp.code == 200
         body = resp.body.decode()
         assert "# Woodglue API" in body
-        assert "demo.some_method:" in body
+        assert "[demo.some_method](/docs/methods/demo.some_method.md)" in body
 
     def test_method_markdown(self):
         resp = self.fetch("/docs/methods/demo.some_method.md")

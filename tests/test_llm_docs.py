@@ -49,8 +49,11 @@ def test_generate_llms_txt():
     namespaces = _make_namespaces()
     txt = generate_llms_txt(namespaces)
     assert "# Woodglue API" in txt
-    assert "- items.create_item: Create an item from input." in txt
-    assert "- math.simple_add: Add two numbers." in txt
+    assert (
+        "- [items.create_item](/docs/methods/items.create_item.md): Create an item from input."
+        in txt
+    )
+    assert "- [math.simple_add](/docs/methods/math.simple_add.md): Add two numbers." in txt
 
 
 def _identity(x: str) -> str:  # pyright: ignore[reportUnusedParameter]
@@ -62,7 +65,7 @@ def test_generate_llms_txt_no_docstring():
     ns = Namespace()
     ns.register(_identity, nsref="identity")
     txt = generate_llms_txt({"misc": ns})
-    assert "- misc.identity:" in txt
+    assert "- [misc.identity](/docs/methods/misc.identity.md)" in txt
 
 
 def test_generate_method_markdown_with_basemodel():

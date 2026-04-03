@@ -12,7 +12,7 @@ async function loadIndex() {
 function parseLlmsTxt(text) {
   const namespaces = {};
   for (const line of text.split("\n")) {
-    const match = line.match(/^- (\S+?):\s*(.*)/);
+    const match = line.match(/^- \[(\S+?)]\([^)]+\):\s*(.*)/);
     if (!match) continue;
     const [, qualified, teaser] = match;
     const dot = qualified.indexOf(".");
