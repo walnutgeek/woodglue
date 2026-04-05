@@ -22,14 +22,30 @@ class Server(BaseModel):
 server_at = main_at.actions.add(Server)
 
 
-def load_namespaces(ns_map: dict[str, str]) -> dict[str, Namespace]:
-    """Load all namespaces from config, keyed by prefix."""
+def load_namespaces(ns_map: dict[str, str], data_dir: Path) -> dict[str, Namespace]:
+    """
+    Load all namespaces from config, keyed by prefix.
+
+    Values ending with `.yaml` or `.yml` are treated as namespace config
+    file paths relative to `data_dir`, loaded via
+    `lythonic.compose.namespace_config.load_namespace`.
+    Otherwise, values are treated as GlobalRef strings pointing to
+    existing Namespace instances.
+    """
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+    from pydantic_yaml import parse_yaml_file_as
+
     result: dict[str, Namespace] = {}
-    for prefix, module_path in ns_map.items():
-        gref = GlobalRef(module_path)
-        ns = gref.get_instance()
-        assert isinstance(ns, Namespace), f"{module_path} is not a Namespace"
-        result[prefix] = ns
+    for prefix, value in ns_map.items():
+        if value.endswith(".yaml") or value.endswith(".yml"):
+            config_path = data_dir / value
+            ns_config = parse_yaml_file_as(NamespaceConfig, config_path)
+            result[prefix] = load_namespace(ns_config, data_dir)
+        else:
+            gref = GlobalRef(value)
+            ns = gref.get_instance()
+            assert isinstance(ns, Namespace), f"{value} is not a Namespace"
+            result[prefix] = ns
     return result
 
 
@@ -44,7 +60,7 @@ def start(ctx: RunContext):  # pyright: ignore[reportUnusedParameter]
     assert isinstance(server_cfg, Server)
 
     config = load_config(server_cfg.data)
-    namespaces = load_namespaces(config.namespaces)
+    namespaces = load_namespaces(config.namespaces, server_cfg.data)
 
     app = create_app(namespaces=namespaces, config=config)
     app.listen(server_cfg.port, server_cfg.host)
