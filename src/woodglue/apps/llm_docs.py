@@ -214,7 +214,11 @@ def generate_method_markdown(prefix: str, method_name: str, node: NamespaceNode)
 
 
 def _python_type_to_schema(annotation: Any) -> dict[str, Any]:
-    """Map a Python type annotation to a JSON Schema fragment."""
+    """Map a Python type annotation to a JSON Schema fragment.
+
+    For BaseModel types, includes an `x-global-ref` vendor extension
+    with the fully qualified module path for smart client deserialization.
+    """
     if annotation is None or annotation is inspect.Parameter.empty:
         return {"type": "string"}
     if annotation is int:
@@ -226,7 +230,9 @@ def _python_type_to_schema(annotation: Any) -> dict[str, Any]:
     if annotation is bool:
         return {"type": "boolean"}
     if _is_basemodel(annotation):
-        return annotation.model_json_schema()
+        schema = annotation.model_json_schema()
+        schema["x-global-ref"] = f"{annotation.__module__}:{annotation.__qualname__}"
+        return schema
     return {"type": "string"}
 
 
@@ -237,13 +243,14 @@ def _json_safe_default(value: Any) -> Any:
     return str(value)
 
 
-def generate_openapi_spec(namespaces: dict[str, Namespace]) -> dict[str, Any]:
-    """Build an OpenAPI 3.0.3 spec dict from multiple namespaces."""
+def generate_openapi_spec(
+    method_index: dict[str, dict[str, NamespaceNode]],
+) -> dict[str, Any]:
+    """Build an OpenAPI 3.0.3 spec dict from the method index."""
     paths: dict[str, Any] = {}
 
-    for prefix in sorted(namespaces):
-        ns = namespaces[prefix]
-        for leaf_name, node in walk_namespace(ns):
+    for prefix in sorted(method_index):
+        for leaf_name, node in sorted(method_index[prefix].items()):
             method = node.method
             qualified = f"{prefix}.{leaf_name}"
             path = f"/rpc/{qualified}"
@@ -364,6 +371,8 @@ class OpenApiHandler(tornado.web.RequestHandler):
 
     @override
     def get(self) -> None:
-        namespaces: dict[str, Namespace] = self.application.settings["namespaces"]
+        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
+            "method_index"
+        ]
         self.set_header("Content-Type", "application/json")
-        self.write(generate_openapi_spec(namespaces))
+        self.write(generate_openapi_spec(method_index))

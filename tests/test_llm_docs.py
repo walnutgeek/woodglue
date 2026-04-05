@@ -102,7 +102,28 @@ def test_generate_method_markdown_simple_types():
 
 def test_generate_openapi_spec():
     namespaces = _make_namespaces()
-    spec = generate_openapi_spec(namespaces)
+    index = build_method_index(namespaces)
+    spec = generate_openapi_spec(index)
     assert spec["openapi"] == "3.0.3"
-    assert "/rpc/items.create_item" in spec["paths"] or "items.create_item" in str(spec)
-    assert "/rpc/math.simple_add" in spec["paths"] or "math.simple_add" in str(spec)
+    assert "/rpc/items.create_item" in spec["paths"]
+    assert "/rpc/math.simple_add" in spec["paths"]
+
+
+def test_openapi_x_global_ref():
+    namespaces = _make_namespaces()
+    index = build_method_index(namespaces)
+    spec = generate_openapi_spec(index)
+    # Check x-global-ref on request body schema (BaseModel param)
+    create_op = spec["paths"]["/rpc/items.create_item"]["post"]
+    req_schema = create_op["requestBody"]["content"]["application/json"]["schema"]
+    input_prop = req_schema["properties"]["input"]
+    assert "x-global-ref" in input_prop
+    assert input_prop["x-global-ref"].endswith(":ItemIn")
+    # Check x-global-ref on response schema (BaseModel return)
+    resp_schema = create_op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "x-global-ref" in resp_schema
+    assert resp_schema["x-global-ref"].endswith(":ItemOut")
+    # Simple types should NOT have x-global-ref
+    add_op = spec["paths"]["/rpc/math.simple_add"]["post"]
+    add_resp = add_op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "x-global-ref" not in add_resp
