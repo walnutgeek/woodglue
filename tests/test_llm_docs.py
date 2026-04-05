@@ -37,17 +37,18 @@ def simple_add(a: int, b: int) -> int:
 
 def _make_namespaces() -> dict[str, Namespace]:
     ns1 = Namespace()
-    ns1.register(create_item, nsref="create_item")
+    ns1.register(create_item, nsref="create_item", tags=["api"])
 
     ns2 = Namespace()
-    ns2.register(simple_add, nsref="simple_add")
+    ns2.register(simple_add, nsref="simple_add", tags=["api"])
 
     return {"items": ns1, "math": ns2}
 
 
 def test_generate_llms_txt():
     namespaces = _make_namespaces()
-    txt = generate_llms_txt(namespaces)
+    index = build_method_index(namespaces)
+    txt = generate_llms_txt(index)
     assert "# Woodglue API" in txt
     assert (
         "- [items.create_item](/docs/methods/items.create_item.md): Create an item from input."
@@ -63,8 +64,9 @@ def _identity(x: str) -> str:  # pyright: ignore[reportUnusedParameter]
 def test_generate_llms_txt_no_docstring():
     """Methods without docstrings use the qualified name as teaser."""
     ns = Namespace()
-    ns.register(_identity, nsref="identity")
-    txt = generate_llms_txt({"misc": ns})
+    ns.register(_identity, nsref="identity", tags=["api"])
+    index = build_method_index({"misc": ns})
+    txt = generate_llms_txt(index)
     assert "- [misc.identity](/docs/methods/misc.identity.md)" in txt
 
 

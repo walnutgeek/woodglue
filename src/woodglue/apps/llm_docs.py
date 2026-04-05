@@ -33,21 +33,27 @@ def walk_namespace(ns: Namespace) -> list[tuple[str, NamespaceNode]]:
     return result
 
 
+API_TAG = "api"
+
+
 def build_method_index(
     namespaces: dict[str, Namespace],
 ) -> dict[str, dict[str, NamespaceNode]]:
     """
     Build a flat lookup: `{prefix: {leaf_name: node}}`.
 
-    This resolves the nested namespace structure into a simple two-level
-    dict suitable for both RPC dispatch and documentation generation.
+    Only includes methods tagged with `"api"`. This resolves the nested
+    namespace structure into a simple two-level dict suitable for both
+    RPC dispatch and documentation generation.
     """
     index: dict[str, dict[str, NamespaceNode]] = {}
     for prefix, ns in namespaces.items():
         methods: dict[str, NamespaceNode] = {}
         for leaf_name, node in walk_namespace(ns):
-            methods[leaf_name] = node
-        index[prefix] = methods
+            if API_TAG in node.tags:
+                methods[leaf_name] = node
+        if methods:
+            index[prefix] = methods
     return index
 
 
@@ -131,9 +137,9 @@ def _render_model_table(model: type[BaseModel]) -> str:
 # ---- llms.txt generation ----
 
 
-def generate_llms_txt(namespaces: dict[str, Namespace]) -> str:
+def generate_llms_txt(method_index: dict[str, dict[str, NamespaceNode]]) -> str:
     """
-    Generate an `llms.txt` index listing all methods across all namespaces.
+    Generate an `llms.txt` index listing all methods in the method index.
     """
     lines = [
         "# Woodglue API",
@@ -144,9 +150,8 @@ def generate_llms_txt(namespaces: dict[str, Namespace]) -> str:
         "",
     ]
 
-    for prefix in sorted(namespaces):
-        ns = namespaces[prefix]
-        for leaf_name, node in walk_namespace(ns):
+    for prefix in sorted(method_index):
+        for leaf_name, node in sorted(method_index[prefix].items()):
             teaser = _docstring_teaser(node.method.doc)
             qualified = f"{prefix}.{leaf_name}"
             doc_link = f"/docs/methods/{qualified}.md"
@@ -314,9 +319,11 @@ class LlmsTxtHandler(tornado.web.RequestHandler):
 
     @override
     def get(self) -> None:
-        namespaces: dict[str, Namespace] = self.application.settings["namespaces"]
+        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
+            "method_index"
+        ]
         self.set_header("Content-Type", "text/plain; charset=utf-8")
-        self.write(generate_llms_txt(namespaces))
+        self.write(generate_llms_txt(method_index))
 
 
 class MethodDocHandler(tornado.web.RequestHandler):
