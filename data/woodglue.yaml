@@ -1,5 +1,5 @@
 namespaces:
-  hello: "woodglue.hello:ns"
+  hello: "hello_ns.yaml"
 
 docs:
   enabled: true

@@ -1,0 +1,7 @@
+entries:
+  - nsref: hello
+    gref: "woodglue.hello:hello"
+    tags: ["api"]
+  - nsref: pydantic_hello
+    gref: "woodglue.hello:pydantic_hello"
+    tags: ["api"]
