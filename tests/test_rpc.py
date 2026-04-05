@@ -38,8 +38,8 @@ def nested_output(x: int) -> Outer:
 
 def _make_namespace() -> Namespace:
     ns = Namespace()
-    ns.register(sync_add, nsref="sync_add")
-    ns.register(async_greet, nsref="async_greet")
+    ns.register(sync_add, nsref="sync_add", tags=["api"])
+    ns.register(async_greet, nsref="async_greet", tags=["api"])
     return ns
 
 
@@ -144,12 +144,12 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
 
 def _make_multi_namespace() -> dict[str, Namespace]:
     ns1 = Namespace()
-    ns1.register(sync_add, nsref="sync_add")
-    ns1.register(async_greet, nsref="async_greet")
+    ns1.register(sync_add, nsref="sync_add", tags=["api"])
+    ns1.register(async_greet, nsref="async_greet", tags=["api"])
 
     ns2 = Namespace()
-    ns2.register(pydantic_hello, nsref="pydantic_hello")
-    ns2.register(nested_output, nsref="nested_output")
+    ns2.register(pydantic_hello, nsref="pydantic_hello", tags=["api"])
+    ns2.register(nested_output, nsref="nested_output", tags=["api"])
 
     return {"test": ns1, "hello": ns2}
 

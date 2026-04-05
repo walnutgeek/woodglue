@@ -31,4 +31,4 @@ def pydantic_hello(input: HelloIn) -> HelloOut:
 
 
 ns = Namespace()
-ns.register_all(hello, pydantic_hello)
+ns.register_all(hello, pydantic_hello, tags=["api"])

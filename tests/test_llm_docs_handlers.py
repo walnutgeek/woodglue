@@ -25,7 +25,7 @@ def some_method(input: SomeInput) -> int:
 
 def _make_namespaces() -> dict[str, Namespace]:
     ns = Namespace()
-    ns.register(some_method, nsref="some_method")
+    ns.register(some_method, nsref="some_method", tags=["api"])
     return {"demo": ns}
 
 
