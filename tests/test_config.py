@@ -129,3 +129,23 @@ def test_load_namespaces_inline():
     node = namespaces["inline"].get("hello")
     assert node is not None
     assert "api" in node.tags
+
+
+def test_load_config_with_auth():
+    """Load a config with auth settings."""
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = Path(tmp) / "woodglue.yaml"
+        config_path.write_text(
+            "namespaces:\n  hello: 'woodglue.hello:ns'\nauth:\n  enabled: false\n"
+        )
+        cfg = load_config(Path(tmp))
+        assert cfg.auth.enabled is False
+
+
+def test_auth_enabled_by_default():
+    """Auth is enabled by default."""
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = Path(tmp) / "woodglue.yaml"
+        config_path.write_text("namespaces:\n  hello: 'woodglue.hello:ns'\n")
+        cfg = load_config(Path(tmp))
+        assert cfg.auth.enabled is True
