@@ -55,4 +55,6 @@ def create_app(
         namespaces=namespaces,
         method_index=method_index,
         config=config,
+        auth_enabled=config.auth.enabled,
+        auth_db=config.storage.auth_db,
     )

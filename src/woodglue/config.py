@@ -43,6 +43,12 @@ class EngineConfig(BaseModel):
     enabled: bool = False
 
 
+class AuthConfig(BaseModel):
+    """Bearer token authentication settings."""
+
+    enabled: bool = True
+
+
 class WoodglueConfig(BaseModel):
     """
     Root configuration loaded from `woodglue.yaml`.
@@ -58,6 +64,7 @@ class WoodglueConfig(BaseModel):
     docs: DocsConfig = DocsConfig()
     ui: UiConfig = UiConfig()
     engine: EngineConfig = EngineConfig()
+    auth: AuthConfig = AuthConfig()
 
 
 def load_config(data_dir: Path) -> WoodglueConfig:

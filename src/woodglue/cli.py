@@ -47,7 +47,9 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
         storage.dag_db = data_dir / storage.dag_db
     if storage.trigger_db is not None and not storage.trigger_db.is_absolute():
         storage.trigger_db = data_dir / storage.trigger_db
-    if storage.auth_db is not None and not storage.auth_db.is_absolute():
+    if storage.auth_db is None:
+        storage.auth_db = data_dir / "auth.db"
+    elif not storage.auth_db.is_absolute():
         storage.auth_db = data_dir / storage.auth_db
     if storage.log_file is not None and not storage.log_file.is_absolute():
         storage.log_file = data_dir / storage.log_file
@@ -114,6 +116,19 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
 
     config = load_config(data_dir)
     _resolve_storage(config, data_dir)
+
+    # Auth token setup
+    if config.auth.enabled:
+        from woodglue.token_store import ensure_token, get_single_token
+
+        assert config.storage.auth_db is not None
+        ensure_token(config.storage.auth_db)
+        single = get_single_token(config.storage.auth_db)
+        if single:
+            print(f"  Auth token: {single}")
+        else:
+            print("  Auth enabled (multiple tokens configured)")
+
     namespaces = load_namespaces(config.namespaces, data_dir)
 
     app = create_app(namespaces=namespaces, config=config)
