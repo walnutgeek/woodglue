@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from woodglue.cli import load_namespaces
 from woodglue.config import DocsConfig, EngineConfig, UiConfig, load_config
 
 
@@ -87,3 +88,44 @@ def test_load_config_with_storage():
         cfg = load_config(Path(tmp))
         assert cfg.storage.cache_db == Path("cache.db")
         assert cfg.storage.auth_db == Path("auth.db")
+
+
+def test_load_namespaces_from_yaml():
+    """Load a namespace from a YAML config file."""
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        ns_config_path = data_dir / "test_ns.yaml"
+        ns_config_path.write_text(
+            "namespace:\n"
+            "  - nsref: hello\n"
+            '    gref: "woodglue.hello:hello"\n'
+            "    tags: ['api']\n"
+            "  - nsref: pydantic_hello\n"
+            '    gref: "woodglue.hello:pydantic_hello"\n'
+            "    tags: ['api']\n"
+        )
+        namespaces = load_namespaces({"greet": "test_ns.yaml"}, data_dir)
+        assert "greet" in namespaces
+        ns = namespaces["greet"]
+        node = ns.get("hello")
+        assert node is not None
+        assert "api" in node.tags
+
+
+def test_load_namespaces_from_globalref():
+    """Load a namespace from a GlobalRef string (existing behavior)."""
+    namespaces = load_namespaces({"hello": "woodglue.hello:ns"}, Path("."))
+    assert "hello" in namespaces
+
+
+def test_load_namespaces_inline():
+    """Load a namespace from inline NsNodeConfig list."""
+    entries = [
+        {"nsref": "hello", "gref": "woodglue.hello:hello", "tags": ["api"]},
+        {"nsref": "pydantic_hello", "gref": "woodglue.hello:pydantic_hello", "tags": ["api"]},
+    ]
+    namespaces = load_namespaces({"inline": entries}, Path("."))
+    assert "inline" in namespaces
+    node = namespaces["inline"].get("hello")
+    assert node is not None
+    assert "api" in node.tags
