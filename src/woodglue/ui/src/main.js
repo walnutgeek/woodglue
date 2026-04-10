@@ -2,9 +2,62 @@ import { marked } from "marked";
 
 const navTree = document.getElementById("nav-tree");
 const docContent = document.getElementById("doc-content");
+const appEl = document.getElementById("app");
+
+function getToken() {
+  const cookies = document.cookie.split(";").map((c) => c.trim());
+  for (const c of cookies) {
+    if (c.startsWith("wgl_token=")) return c.substring(10);
+  }
+  return null;
+}
+
+function setToken(token) {
+  document.cookie = `wgl_token=${token};path=/;max-age=${365 * 86400};SameSite=Strict`;
+}
+
+function clearToken() {
+  document.cookie = "wgl_token=;path=/;max-age=0";
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function showTokenInput() {
+  appEl.innerHTML = `
+    <div class="token-prompt">
+      <h2>Authentication Required</h2>
+      <p>Enter your auth token (printed on server start):</p>
+      <input type="text" id="token-input" placeholder="Paste token here" />
+      <button id="token-submit">Connect</button>
+    </div>`;
+  document.getElementById("token-submit").addEventListener("click", () => {
+    const val = document.getElementById("token-input").value.trim();
+    if (val) {
+      setToken(val);
+      location.reload();
+    }
+  });
+  document.getElementById("token-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("token-submit").click();
+  });
+}
+
+async function authFetch(url) {
+  const resp = await fetch(url, { headers: authHeaders() });
+  if (resp.status === 401) {
+    clearToken();
+    showTokenInput();
+    return null;
+  }
+  return resp;
+}
 
 async function loadIndex() {
-  const resp = await fetch("/docs/llms.txt");
+  const resp = await authFetch("/docs/llms.txt");
+  if (!resp) return null;
   const text = await resp.text();
   return parseLlmsTxt(text);
 }
@@ -53,11 +106,8 @@ async function loadMethod(qualified, linkEl) {
   document.querySelectorAll(".method-link.active").forEach((el) => el.classList.remove("active"));
   if (linkEl) linkEl.classList.add("active");
 
-  const resp = await fetch(`/docs/methods/${qualified}.md`);
-  if (!resp.ok) {
-    docContent.innerHTML = `<p>Failed to load documentation for ${qualified}.</p>`;
-    return;
-  }
+  const resp = await authFetch(`/docs/methods/${qualified}.md`);
+  if (!resp) return;
   const md = await resp.text();
   docContent.innerHTML = marked.parse(md);
 }
@@ -65,6 +115,7 @@ async function loadMethod(qualified, linkEl) {
 async function init() {
   try {
     const namespaces = await loadIndex();
+    if (!namespaces) return;
     renderNav(namespaces);
   } catch (err) {
     navTree.innerHTML = `<p>Failed to load API index.</p>`;
