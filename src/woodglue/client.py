@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -38,12 +39,21 @@ class WoodglueClient:
     4. Return raw dict/primitive
     """
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, *, token: str | None = None, data_dir: Path | None = None):
         self._base_url: str = base_url.rstrip("/")
         self._http: AsyncHTTPClient = AsyncHTTPClient()
         self._request_id: int = 0
         self._return_types: dict[str, type[BaseModel]] = {}
         self._return_grefs: dict[str, str] = {}
+        if token is not None:
+            self._token: str | None = token
+        elif data_dir is not None:
+            from woodglue.token_store import get_single_token
+
+            auth_db = data_dir / "auth.db"
+            self._token = get_single_token(auth_db) if auth_db.exists() else None
+        else:
+            self._token = None
 
     async def load_spec(self, strict: bool = False) -> None:
         """
@@ -54,7 +64,10 @@ class WoodglueClient:
         """
         from lythonic import GlobalRef
 
-        resp = await self._http.fetch(f"{self._base_url}/docs/openapi.json")
+        headers: dict[str, str] = {}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        resp = await self._http.fetch(f"{self._base_url}/docs/openapi.json", headers=headers)
         spec = json.loads(resp.body)
 
         for _path, path_item in spec.get("paths", {}).items():
@@ -119,11 +132,15 @@ class WoodglueClient:
             }
         )
 
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+
         req = HTTPRequest(
             f"{self._base_url}/rpc",
             method="POST",
             body=body,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         resp = await self._http.fetch(req)
         data = json.loads(resp.body)

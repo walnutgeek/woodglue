@@ -1,13 +1,17 @@
 """Tests for woodglue.client.WoodglueClient."""
 
+import tempfile
+from pathlib import Path
+
 import tornado.testing
 from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
 from woodglue.client import WoodglueClient, WoodglueRpcError
-from woodglue.config import WoodglueConfig
+from woodglue.config import AuthConfig, WoodglueConfig, WoodglueStorageConfig
 from woodglue.hello import HelloIn, HelloOut, hello, pydantic_hello
+from woodglue.token_store import ensure_token
 
 
 def _make_namespaces() -> dict[str, Namespace]:
@@ -100,3 +104,53 @@ class TestWoodglueClient(tornado.testing.AsyncHTTPTestCase):
         )
         assert isinstance(result, HelloOut)
         assert result.eman == "eoZ"
+
+
+class TestWoodglueClientWithAuth(tornado.testing.AsyncHTTPTestCase):
+    _tmp: tempfile.TemporaryDirectory[str]  # pyright: ignore[reportUninitializedInstanceVariable]
+    _db_path: Path  # pyright: ignore[reportUninitializedInstanceVariable]
+    _token: str  # pyright: ignore[reportUninitializedInstanceVariable]
+
+    @override
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._db_path = Path(self._tmp.name) / "auth.db"
+        token = ensure_token(self._db_path)
+        assert token is not None
+        self._token = token
+        super().setUp()
+
+    @override
+    def tearDown(self):
+        super().tearDown()
+        self._tmp.cleanup()
+
+    @override
+    def get_app(self):
+        config = WoodglueConfig(
+            namespaces={"test": "unused"},
+            auth=AuthConfig(enabled=True),
+            storage=WoodglueStorageConfig(auth_db=self._db_path),
+        )
+        return create_app(namespaces=_make_namespaces(), config=config)
+
+    @tornado.testing.gen_test
+    async def test_client_with_token(self):
+        client = WoodglueClient(self.get_url(""), token=self._token)
+        result = await client.call("test.hello", name="World")
+        assert result == 5
+
+    @tornado.testing.gen_test
+    async def test_client_without_token_fails(self):
+        client = WoodglueClient(self.get_url(""))
+        try:
+            await client.call("test.hello", name="World")
+            raise AssertionError("Expected WoodglueRpcError")
+        except WoodglueRpcError as e:
+            assert e.code == -32000
+
+    @tornado.testing.gen_test
+    async def test_client_auto_discover_token(self):
+        client = WoodglueClient(self.get_url(""), data_dir=Path(self._tmp.name))
+        result = await client.call("test.hello", name="World")
+        assert result == 5
