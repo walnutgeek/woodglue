@@ -1,6 +1,6 @@
 # Testing Strategy
 
-This is the primary source of truth for all testing conventions in WoodGlue.
+This is the primary source of truth for all testing conventions in Lythonic.
 `CLAUDE.md` contains a condensed summary; this document has the full rationale
 and examples.
 
@@ -14,7 +14,7 @@ and examples.
 
 ## Three Testing Tiers
 
-Testing in WoodGlue uses three tiers, each with a clear purpose. Choose the
+Testing in Lythonic uses three tiers, each with a clear purpose. Choose the
 tier that matches the scope of what you're testing.
 
 ### Tier 1: Doctests (in docstrings)
@@ -187,7 +187,7 @@ import tests.test_cached as this_module
 
 
 def test_sync_wrapper_miss_fetches_and_caches():
-    from woodglue.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
 
     with tempfile.TemporaryDirectory() as tmp:
         config = CacheConfig(
@@ -314,10 +314,10 @@ uv run pytest tests/test_cached.py::test_sync_wrapper_miss_fetches_and_caches -v
 uv run pytest -s tests/test_cached.py
 
 # Run only doctests:
-uv run pytest --doctest-modules src/woodglue/compose/namespace.py
+uv run pytest --doctest-modules src/lythonic/compose/namespace.py
 
 # Run inline tests in a source file:
-uv run pytest src/woodglue/compose/__init__.py -v
+uv run pytest src/lythonic/compose/__init__.py -v
 ```
 
 ## Configuration

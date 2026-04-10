@@ -38,12 +38,14 @@ def test_get_single_token_returns_none_if_multiple():
         db_path = Path(tmp) / "auth.db"
         ensure_token(db_path)
         import sqlite3
+        from contextlib import closing
 
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn:
             conn.execute(
                 "INSERT INTO tokens (token, created_at) VALUES (?, datetime('now'))",
                 ("second-token",),
             )
+            conn.commit()
         assert get_single_token(db_path) is None
 
 
