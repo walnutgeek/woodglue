@@ -57,6 +57,32 @@ class JsonRpcHandler(tornado.web.RequestHandler):
     @override
     def prepare(self) -> None:
         self.set_header("Content-Type", "application/json")
+        if not self.application.settings.get("auth_enabled", False):
+            return
+        auth_db = self.application.settings.get("auth_db")
+        if auth_db is None:
+            return
+        token = self._extract_bearer_token()
+        if not token:
+            self._write_unauthorized()
+            return
+        from woodglue.token_store import validate_token
+
+        if not validate_token(auth_db, token):
+            self._write_unauthorized()
+            return
+
+    def _extract_bearer_token(self) -> str:
+        auth_header = self.request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:].strip()
+        return ""
+
+    def _write_unauthorized(self) -> None:
+        self.write(
+            {"jsonrpc": "2.0", "error": {"code": -32000, "message": "Unauthorized"}, "id": None}
+        )
+        self.finish()
 
     @override
     async def post(self) -> None:

@@ -312,7 +312,33 @@ def generate_openapi_spec(
 # ---- Tornado handlers ----
 
 
-class LlmsTxtHandler(tornado.web.RequestHandler):
+class _AuthDocHandler(tornado.web.RequestHandler):
+    """Base handler for doc endpoints with bearer token auth."""
+
+    @override
+    def prepare(self) -> None:
+        if not self.application.settings.get("auth_enabled", False):
+            return
+        auth_db = self.application.settings.get("auth_db")
+        if auth_db is None:
+            return
+        auth_header = self.request.headers.get("Authorization", "")
+        token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+        if not token:
+            token = self.get_argument("token", "")
+        if not token:
+            self.set_status(401)
+            self.finish("Unauthorized")
+            return
+        from woodglue.token_store import validate_token
+
+        if not validate_token(auth_db, token):
+            self.set_status(401)
+            self.finish("Unauthorized")
+            return
+
+
+class LlmsTxtHandler(_AuthDocHandler):
     """GET /docs/llms.txt"""
 
     @override
@@ -324,7 +350,7 @@ class LlmsTxtHandler(tornado.web.RequestHandler):
         self.write(generate_llms_txt(method_index))
 
 
-class MethodDocHandler(tornado.web.RequestHandler):
+class MethodDocHandler(_AuthDocHandler):
     """GET /docs/methods/{prefix}.{method}.md"""
 
     @override
@@ -357,7 +383,7 @@ class MethodDocHandler(tornado.web.RequestHandler):
         self.write(md)
 
 
-class OpenApiHandler(tornado.web.RequestHandler):
+class OpenApiHandler(_AuthDocHandler):
     """GET /docs/openapi.json"""
 
     @override
