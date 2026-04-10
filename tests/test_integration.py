@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import tornado.testing
-from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+from lythonic.compose.engine import EngineConfig
+from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
@@ -18,7 +19,7 @@ from woodglue.config import WoodglueConfig
 from woodglue.hello import HelloOut
 
 PUB_NS_YAML = """\
-entries:
+namespace:
   - nsref: hello
     gref: "woodglue.hello:hello"
     tags: ["api"]
@@ -30,7 +31,7 @@ entries:
 """
 
 INTERNAL_NS_YAML = """\
-entries:
+namespace:
   - nsref: greet
     gref: "woodglue.hello:hello"
     tags: ["api"]
@@ -39,11 +40,18 @@ entries:
 """
 
 
-def _load_ns_from_yaml(yaml_content: str, data_dir: Path):
+def _load_ns_from_yaml(
+    yaml_content: str,
+    data_dir: Path,  # pyright: ignore[reportUnusedParameter]
+) -> Namespace:
     from pydantic_yaml import parse_yaml_raw_as
 
-    config = parse_yaml_raw_as(NamespaceConfig, yaml_content)
-    return load_namespace(config, data_dir)
+    engine_config = parse_yaml_raw_as(EngineConfig, yaml_content)
+    ns = Namespace()
+    for entry in engine_config.namespace:
+        if entry.gref is not None:
+            ns.register(str(entry.gref), nsref=entry.nsref, tags=entry.tags, config=entry)
+    return ns
 
 
 class TestIntegration(tornado.testing.AsyncHTTPTestCase):

@@ -20,17 +20,8 @@ from typing_extensions import override
 
 
 def walk_namespace(ns: Namespace) -> list[tuple[str, NamespaceNode]]:
-    """
-    Return `(leaf_name, node)` pairs for every NamespaceNode in `ns`,
-    recursively. `leaf_name` is the short key in the namespace, not the
-    full module-qualified nsref.
-    """
-    result: list[tuple[str, NamespaceNode]] = []
-    for name, node in ns._leaves.items():  # pyright: ignore[reportPrivateUsage]
-        result.append((name, node))
-    for _branch_name, branch in ns._branches.items():  # pyright: ignore[reportPrivateUsage]
-        result.extend(walk_namespace(branch))
-    return result
+    """Return `(nsref, node)` pairs for every NamespaceNode in `ns`."""
+    return list(ns._nodes.items())  # pyright: ignore[reportPrivateUsage]
 
 
 API_TAG = "api"

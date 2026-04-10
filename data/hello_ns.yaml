@@ -1,4 +1,4 @@
-entries:
+namespace:
   - nsref: hello
     gref: "woodglue.hello:hello"
     tags: ["api"]

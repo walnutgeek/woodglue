@@ -60,7 +60,7 @@ def test_load_namespaces_from_yaml():
         data_dir = Path(tmp)
         ns_config_path = data_dir / "test_ns.yaml"
         ns_config_path.write_text(
-            "entries:\n"
+            "namespace:\n"
             "  - nsref: hello\n"
             '    gref: "woodglue.hello:hello"\n'
             "    tags: ['api']\n"

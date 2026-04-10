@@ -28,19 +28,23 @@ def load_namespaces(ns_map: dict[str, str], data_dir: Path) -> dict[str, Namespa
 
     Values ending with `.yaml` or `.yml` are treated as namespace config
     file paths relative to `data_dir`, loaded via
-    `lythonic.compose.namespace_config.load_namespace`.
+    `lythonic.compose.engine.EngineConfig`.
     Otherwise, values are treated as GlobalRef strings pointing to
     existing Namespace instances.
     """
-    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+    from lythonic.compose.engine import EngineConfig
     from pydantic_yaml import parse_yaml_file_as
 
     result: dict[str, Namespace] = {}
     for prefix, value in ns_map.items():
         if value.endswith(".yaml") or value.endswith(".yml"):
             config_path = data_dir / value
-            ns_config = parse_yaml_file_as(NamespaceConfig, config_path)
-            result[prefix] = load_namespace(ns_config, data_dir)
+            engine_config = parse_yaml_file_as(EngineConfig, config_path)
+            ns = Namespace()
+            for entry in engine_config.namespace:
+                if entry.gref is not None:
+                    ns.register(str(entry.gref), nsref=entry.nsref, tags=entry.tags, config=entry)
+            result[prefix] = ns
         else:
             gref = GlobalRef(value)
             ns = gref.get_instance()

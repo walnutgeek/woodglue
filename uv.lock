@@ -460,6 +460,18 @@ toml = [
 ]
 
 [[package]]
+name = "croniter"
+version = "6.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/de/5832661ed55107b8a09af3f0a2e71e0957226a59eb1dcf0a445cce6daf20/croniter-6.2.2.tar.gz", hash = "sha256:ba60832a5ec8e12e51b8691c3309a113d1cf6526bdf1a48150ce8ec7a532d0ab", size = 113762, upload-time = "2026-03-15T08:43:48.112Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/39/783980e78cb92c2d7bdb1fc7dbc86e94ccc6d58224d76a7f1f51b6c51e30/croniter-6.2.2-py3-none-any.whl", hash = "sha256:a5d17b1060974d36251ea4faf388233eca8acf0d09cbd92d35f4c4ac8f279960", size = 45422, upload-time = "2026-03-15T08:43:46.626Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "45.0.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1030,15 +1042,16 @@ wheels = [
 
 [[package]]
 name = "lythonic"
-version = "0.0.11"
+version = "0.0.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "croniter" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/66/ab0a022861a89626d50c56424574ca603e552bd4999adfebd65287a28746/lythonic-0.0.11.tar.gz", hash = "sha256:ea73d5c73b741c79d6d86818632dde0b2b4bce32801df7cb1657ff8319ec4f8f", size = 176925, upload-time = "2026-04-04T16:25:32.903Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/3d/b809f3fba8f5c4306490be0a3474051cc0d848462ab238f814fc96149e47/lythonic-0.0.13.tar.gz", hash = "sha256:f580354b676f0dad505579aa9e850627ba27f2b45a3a469cdacf992765c16019", size = 185257, upload-time = "2026-04-10T06:22:37.362Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/f2/6f410f6d8249bd40ebfa8497d37883fdde4e1fcba236959e7c357c838af0/lythonic-0.0.11-py3-none-any.whl", hash = "sha256:1d8746cbcc2fa5805f68a3cd1c296b708435f170495ece17e400b6ca5f997498", size = 58466, upload-time = "2026-04-04T16:25:31.715Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/70/215762675344c2eb6680a5756b2796a825c9203bce399e8932908393f45d/lythonic-0.0.13-py3-none-any.whl", hash = "sha256:7b9e72d24437cec7c4cc1053b2f04404de16e95a1f1f99adb0297bb43e7d4f3c", size = 69110, upload-time = "2026-04-10T06:22:36.253Z" },
 ]
 
 [[package]]
