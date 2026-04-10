@@ -1,6 +1,6 @@
 # Testing Strategy
 
-This is the primary source of truth for all testing conventions in Lythonic.
+This is the primary source of truth for all testing conventions in Woodglue.
 `CLAUDE.md` contains a condensed summary; this document has the full rationale
 and examples.
 
@@ -14,7 +14,7 @@ and examples.
 
 ## Three Testing Tiers
 
-Testing in Lythonic uses three tiers, each with a clear purpose. Choose the
+Testing in Woodglue uses three tiers, each with a clear purpose. Choose the
 tier that matches the scope of what you're testing.
 
 ### Tier 1: Doctests (in docstrings)
@@ -178,33 +178,22 @@ temp files, databases, or multi-module coordination.
 **Example:**
 
 ```python
+"""Tests for woodglue.token_store."""
+
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-import tests.test_cached as this_module
+from woodglue.token_store import ensure_token, get_single_token, validate_token
 
 
-def test_sync_wrapper_miss_fetches_and_caches():
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
-
+def test_ensure_token_creates_on_empty_db():
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_fake_fetch",
-                    namespace_path="market.fetch",
-                    min_ttl=1.0,
-                    max_ttl=2.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
-
-        result = registry.cached.market.fetch(ticker="AAPL")
-        assert result == {"price": 100.0, "ticker": "AAPL"}
+        db_path = Path(tmp) / "auth.db"
+        token = ensure_token(db_path)
+        assert token is not None
+        assert len(token) > 20
 ```
 
 ## Choosing the Right Tier
@@ -270,8 +259,7 @@ with closing(sqlite3.connect(str(db_path))) as conn:
     conn.execute("SELECT ...")
 ```
 
-The project's `open_sqlite_db()` context manager already handles this
-correctly.
+Use `contextlib.closing()` consistently in both production code and tests.
 
 ### Timing-dependent tests
 
@@ -305,19 +293,19 @@ async def pause_when_ready():
 make test
 
 # Run a specific test file:
-uv run pytest tests/test_cached.py -v
+uv run pytest tests/test_rpc.py -v
 
 # Run a specific test:
-uv run pytest tests/test_cached.py::test_sync_wrapper_miss_fetches_and_caches -v
+uv run pytest tests/test_rpc.py::test_sync_function_call -v
 
 # Run with output visible (for debugging):
-uv run pytest -s tests/test_cached.py
+uv run pytest -s tests/test_rpc.py
 
 # Run only doctests:
-uv run pytest --doctest-modules src/lythonic/compose/namespace.py
+uv run pytest --doctest-modules src/woodglue/token_store.py
 
 # Run inline tests in a source file:
-uv run pytest src/lythonic/compose/__init__.py -v
+uv run pytest src/woodglue/config.py -v
 ```
 
 ## Configuration
