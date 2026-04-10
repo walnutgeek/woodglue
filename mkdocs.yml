@@ -1,0 +1,73 @@
+site_name: Woodglue
+site_description: Self-documenting opinionated async server that hosts logic and data
+site_url: https://walnutgeek.github.io/woodglue/
+repo_url: https://github.com/walnutgeek/woodglue
+repo_name: walnutgeek/woodglue
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            docstring_style: google
+
+markdown_extensions:
+  - pycon
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - API Reference:
+      - woodglue.config: reference/config.md
+      - woodglue.client: reference/client.md
+      - woodglue.cli: reference/cli.md
+      - apps:
+          - woodglue.apps.server: reference/apps-server.md
+          - woodglue.apps.rpc: reference/apps-rpc.md
+          - woodglue.apps.llm_docs: reference/apps-llm-docs.md
+      - woodglue.hello: reference/hello.md
+  - Release Notes:
+      - v0.0.3: release_notes/v0.0.3.md
+      - v0.0.2: release_notes/v0.0.2.md
