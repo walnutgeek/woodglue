@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from lythonic.misc import tabula_rasa_path
 
-from woodglue.auth import EntityPrivates, Grant, IdentityKey, Principal
+from woodglue.crypto import EntityPrivates, Grant, IdentityKey, Principal
 
 ep_dirs = [tabula_rasa_path(f"build/tests/auth/EntityPrivates/{i}") for i in range(1, 3)]
 
