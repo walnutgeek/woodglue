@@ -59,6 +59,8 @@ class WoodglueConfig(BaseModel):
     - An inline list of `NsNodeConfig` entries
     """
 
+    host: str = "127.0.0.1"
+    port: int = 5321
     storage: WoodglueStorageConfig = WoodglueStorageConfig()
     namespaces: dict[str, Any]
     docs: DocsConfig = DocsConfig()

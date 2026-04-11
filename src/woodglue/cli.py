@@ -117,6 +117,10 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     config = load_config(data_dir)
     _resolve_storage(config, data_dir)
 
+    # CLI args override config values
+    host = root.host if root.host != "127.0.0.1" else config.host
+    port = root.port if root.port != 5321 else config.port
+
     # Auth token setup
     if config.auth.enabled:
         from woodglue.token_store import ensure_token, get_single_token
@@ -132,13 +136,13 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     namespaces = load_namespaces(config.namespaces, data_dir)
 
     app = create_app(namespaces=namespaces, config=config)
-    app.listen(root.port, root.host)
-    print(f"Woodglue listening on http://{root.host}:{root.port}")
-    print(f"  RPC endpoint: http://{root.host}:{root.port}/rpc")
+    app.listen(port, host)
+    print(f"Woodglue listening on http://{host}:{port}")
+    print(f"  RPC endpoint: http://{host}:{port}/rpc")
     if config.docs.enabled:
-        print(f"  LLM docs:     http://{root.host}:{root.port}/docs/llms.txt")
+        print(f"  LLM docs:     http://{host}:{port}/docs/llms.txt")
     if config.ui.enabled:
-        print(f"  UI:           http://{root.host}:{root.port}/ui/")
+        print(f"  UI:           http://{host}:{port}/ui/")
 
     pid_path = _pid_file(data_dir)
     pid_path.write_text(str(os.getpid()))
