@@ -259,7 +259,8 @@ with closing(sqlite3.connect(str(db_path))) as conn:
     conn.execute("SELECT ...")
 ```
 
-Use `contextlib.closing()` consistently in both production code and tests.
+The lythonics's `open_sqlite_db()` context manager already handles this 
+correctly. 
 
 ### Timing-dependent tests
 
