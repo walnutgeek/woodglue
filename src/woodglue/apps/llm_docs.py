@@ -145,7 +145,9 @@ def generate_llms_txt(method_index: dict[str, dict[str, NamespaceNode]]) -> str:
         for leaf_name, node in sorted(method_index[prefix].items()):
             teaser = _docstring_teaser(node.method.doc)
             qualified = f"{prefix}.{leaf_name}"
-            doc_link = f"/docs/methods/{qualified}.md"
+            # Replace ':' with '/' in doc URLs for cleaner paths
+            doc_path = qualified.replace(":", "/")
+            doc_link = f"/docs/methods/{doc_path}.md"
             if teaser:
                 lines.append(f"- [{qualified}]({doc_link}): {teaser}")
             else:
@@ -351,17 +353,22 @@ class LlmsTxtHandler(_AuthDocHandler):
 
 
 class MethodDocHandler(_AuthDocHandler):
-    """GET /docs/methods/{prefix}.{method}.md"""
+    """GET /docs/methods/{prefix}.{module}/{name}.md
+
+    URL uses '/' in place of ':' for cleaner paths. The handler reverses
+    this to look up the method by its nsref (which uses ':').
+    """
 
     @override
-    def get(self, filename: str) -> None:
+    def get(self, path: str) -> None:
         method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
             "method_index"
         ]
 
-        if not filename.endswith(".md"):
+        if not path.endswith(".md"):
             raise tornado.web.HTTPError(404)
-        name = filename[:-3]
+        # Reverse the URL encoding: '/' back to ':'
+        name = path[:-3].replace("/", ":")
 
         dot_pos = name.find(".")
         if dot_pos < 0:

@@ -107,7 +107,7 @@ def test_load_namespaces_from_yaml():
         namespaces = load_namespaces({"greet": "test_ns.yaml"}, data_dir)
         assert "greet" in namespaces
         ns = namespaces["greet"]
-        node = ns.get("hello")
+        node = ns.get("woodglue.hello:hello")
         assert node is not None
         assert "api" in node.tags
 
@@ -126,7 +126,7 @@ def test_load_namespaces_inline():
     ]
     namespaces = load_namespaces({"inline": entries}, Path("."))
     assert "inline" in namespaces
-    node = namespaces["inline"].get("hello")
+    node = namespaces["inline"].get("woodglue.hello:hello")
     assert node is not None
     assert "api" in node.tags
 

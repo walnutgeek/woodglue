@@ -78,7 +78,6 @@ def load_namespaces(ns_map: dict[str, Any], data_dir: Path) -> dict[str, Namespa
                     if entry.gref is not None:
                         ns.register(
                             str(entry.gref),
-                            nsref=entry.nsref,
                             tags=entry.tags,
                             config=entry,
                         )
@@ -95,7 +94,6 @@ def load_namespaces(ns_map: dict[str, Any], data_dir: Path) -> dict[str, Namespa
                 if entry.gref is not None:
                     ns.register(
                         str(entry.gref),
-                        nsref=entry.nsref,
                         tags=entry.tags,
                         config=entry,
                     )

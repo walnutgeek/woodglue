@@ -106,7 +106,8 @@ async function loadMethod(qualified, linkEl) {
   document.querySelectorAll(".method-link.active").forEach((el) => el.classList.remove("active"));
   if (linkEl) linkEl.classList.add("active");
 
-  const resp = await authFetch(`/docs/methods/${qualified}.md`);
+  const docPath = qualified.replaceAll(":", "/");
+  const resp = await authFetch(`/docs/methods/${docPath}.md`);
   if (!resp) return;
   const md = await resp.text();
   docContent.innerHTML = marked.parse(md);
