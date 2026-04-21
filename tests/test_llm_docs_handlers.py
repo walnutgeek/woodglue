@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
-from woodglue.config import WoodglueConfig
+from woodglue.config import NamespaceEntry, WoodglueConfig
 
 
 class SomeInput(BaseModel):
@@ -23,16 +23,16 @@ def some_method(input: SomeInput) -> int:
     return input.value * 2
 
 
-def _make_namespaces() -> dict[str, Namespace]:
+def _make_namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
     ns = Namespace()
     ns.register(some_method, nsref="some_method", tags=["api"])
-    return {"demo": ns}
+    return {"demo": (ns, NamespaceEntry(gref="demo"))}
 
 
 class TestLlmDocsHandlers(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
-        config = WoodglueConfig(namespaces={"demo": "unused"})
+        config = WoodglueConfig(namespaces={"demo": NamespaceEntry(gref="unused")})
         return create_app(namespaces=_make_namespaces(), config=config)
 
     def test_llms_txt(self):

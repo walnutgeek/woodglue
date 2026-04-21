@@ -9,6 +9,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
+from woodglue.config import NamespaceEntry
 from woodglue.hello import pydantic_hello
 
 
@@ -56,7 +57,7 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
         ns = _make_namespace()
-        return create_app(namespaces={"test": ns})
+        return create_app(namespaces={"test": (ns, NamespaceEntry(gref="test"))})
 
     def test_sync_function_call(self):
         resp = self.fetch(
@@ -142,7 +143,7 @@ class TestJsonRpc(tornado.testing.AsyncHTTPTestCase):
         assert data["id"] is None
 
 
-def _make_multi_namespace() -> dict[str, Namespace]:
+def _make_multi_namespace() -> dict[str, tuple[Namespace, NamespaceEntry]]:
     ns1 = Namespace()
     ns1.register(sync_add, nsref="sync_add", tags=["api"])
     ns1.register(async_greet, nsref="async_greet", tags=["api"])
@@ -151,7 +152,10 @@ def _make_multi_namespace() -> dict[str, Namespace]:
     ns2.register(pydantic_hello, nsref="pydantic_hello", tags=["api"])
     ns2.register(nested_output, nsref="nested_output", tags=["api"])
 
-    return {"test": ns1, "hello": ns2}
+    return {
+        "test": (ns1, NamespaceEntry(gref="test")),
+        "hello": (ns2, NamespaceEntry(gref="hello")),
+    }
 
 
 class TestMultiNamespaceRpc(tornado.testing.AsyncHTTPTestCase):

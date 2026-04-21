@@ -10,20 +10,25 @@ from lythonic.compose.namespace import Namespace
 
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
-from woodglue.config import WoodglueConfig
+from woodglue.config import NamespaceEntry, WoodglueConfig
 
 
 def create_app(
-    namespaces: dict[str, Namespace],
+    namespaces: dict[str, tuple[Namespace, NamespaceEntry]],
     config: WoodglueConfig | None = None,
 ) -> tornado.web.Application:
     """
     Build a Tornado Application with JSON-RPC and optional docs/UI routes.
 
-    `namespaces` maps prefix strings to loaded Namespace instances.
+    `namespaces` maps prefix strings to `(Namespace, NamespaceEntry)` tuples.
+    The plain `Namespace` dict (all namespaces) is stored in app settings for
+    internal use. The `method_index` is filtered by `expose_api`.
     """
     if config is None:
         config = WoodglueConfig(namespaces={})
+
+    # Plain namespace dict for internal use (e.g. `wgl run`)
+    plain_namespaces = {prefix: ns for prefix, (ns, _) in namespaces.items()}
 
     method_index = build_method_index(namespaces)
 
@@ -52,7 +57,7 @@ def create_app(
 
     return tornado.web.Application(
         handlers,
-        namespaces=namespaces,
+        namespaces=plain_namespaces,
         method_index=method_index,
         config=config,
         auth_enabled=config.auth.enabled,

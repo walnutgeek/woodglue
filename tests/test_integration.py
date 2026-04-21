@@ -15,7 +15,7 @@ from typing_extensions import override
 
 from woodglue.apps.server import create_app
 from woodglue.client import WoodglueClient, WoodglueRpcError
-from woodglue.config import WoodglueConfig
+from woodglue.config import NamespaceEntry, WoodglueConfig
 from woodglue.hello import HelloOut
 
 PUB_NS_YAML = """\
@@ -72,10 +72,21 @@ class TestIntegration(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
         namespaces = {
-            "pub": _load_ns_from_yaml(PUB_NS_YAML, self._data_dir),
-            "internal": _load_ns_from_yaml(INTERNAL_NS_YAML, self._data_dir),
+            "pub": (
+                _load_ns_from_yaml(PUB_NS_YAML, self._data_dir),
+                NamespaceEntry(file="pub_ns.yaml"),
+            ),
+            "internal": (
+                _load_ns_from_yaml(INTERNAL_NS_YAML, self._data_dir),
+                NamespaceEntry(file="internal_ns.yaml"),
+            ),
         }
-        config = WoodglueConfig(namespaces={"pub": "pub_ns.yaml", "internal": "internal_ns.yaml"})
+        config = WoodglueConfig(
+            namespaces={
+                "pub": NamespaceEntry(file="pub_ns.yaml"),
+                "internal": NamespaceEntry(file="internal_ns.yaml"),
+            }
+        )
         return create_app(namespaces=namespaces, config=config)
 
     # ---- Positive: api-tagged methods appear in all 4 surfaces ----

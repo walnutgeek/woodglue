@@ -13,14 +13,13 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 from lythonic import GlobalRef
 from lythonic.compose.cli import ActionTree, Main, RunContext
-from lythonic.compose.namespace import Namespace, NsNodeConfig
+from lythonic.compose.namespace import Namespace
 from pydantic import Field
 
-from woodglue.config import WoodglueConfig, load_config
+from woodglue.config import NamespaceEntry, WoodglueConfig, load_config
 
 
 class WoodglueMain(Main):
@@ -55,49 +54,48 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
         storage.log_file = data_dir / storage.log_file
 
 
-def load_namespaces(ns_map: dict[str, Any], data_dir: Path) -> dict[str, Namespace]:
+def load_namespaces(
+    ns_map: dict[str, NamespaceEntry], data_dir: Path
+) -> dict[str, tuple[Namespace, NamespaceEntry]]:
     """
     Load all namespaces from config, keyed by prefix.
 
-    Handles three value types:
-    - String ending in `.yaml`/`.yml`: load as lythonic EngineConfig
-    - Other string: GlobalRef to a Namespace instance
-    - List of dicts/NsNodeConfig: inline namespace entries
+    Each `NamespaceEntry` specifies exactly one of `gref`, `file`, or
+    `entries`. Returns `(Namespace, NamespaceEntry)` tuples so callers
+    can inspect per-namespace flags like `expose_api` and `run_engine`.
     """
     from lythonic.compose.engine import EngineConfig as LythEngineConfig
     from pydantic_yaml import parse_yaml_file_as
 
-    result: dict[str, Namespace] = {}
-    for prefix, value in ns_map.items():
-        if isinstance(value, str):
-            if value.endswith(".yaml") or value.endswith(".yml"):
-                config_path = data_dir / value
-                engine_config = parse_yaml_file_as(LythEngineConfig, config_path)
-                ns = Namespace()
-                for entry in engine_config.namespace:
-                    if entry.gref is not None:
-                        ns.register(
-                            str(entry.gref),
-                            tags=entry.tags,
-                            config=entry,
-                        )
-                result[prefix] = ns
-            else:
-                gref = GlobalRef(value)
-                ns = gref.get_instance()
-                assert isinstance(ns, Namespace), f"{value} is not a Namespace"
-                result[prefix] = ns
-        elif isinstance(value, list):
+    result: dict[str, tuple[Namespace, NamespaceEntry]] = {}
+    for prefix, ns_entry in ns_map.items():
+        if ns_entry.gref is not None:
+            gref = GlobalRef(ns_entry.gref)
+            ns = gref.get_instance()
+            assert isinstance(ns, Namespace), f"{ns_entry.gref} is not a Namespace"
+            result[prefix] = (ns, ns_entry)
+        elif ns_entry.file is not None:
+            config_path = data_dir / ns_entry.file
+            engine_config = parse_yaml_file_as(LythEngineConfig, config_path)
             ns = Namespace()
-            for item in value:
-                entry = NsNodeConfig.model_validate(item) if isinstance(item, dict) else item
+            for entry in engine_config.namespace:
                 if entry.gref is not None:
                     ns.register(
                         str(entry.gref),
                         tags=entry.tags,
                         config=entry,
                     )
-            result[prefix] = ns
+            result[prefix] = (ns, ns_entry)
+        elif ns_entry.entries is not None:
+            ns = Namespace()
+            for entry in ns_entry.entries:
+                if entry.gref is not None:
+                    ns.register(
+                        str(entry.gref),
+                        tags=entry.tags,
+                        config=entry,
+                    )
+            result[prefix] = (ns, ns_entry)
     return result
 
 
@@ -142,12 +140,14 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     if config.ui.enabled:
         print(f"  UI:           http://{host}:{port}/ui/")
 
+    engine_enabled = any(entry.run_engine for _, entry in namespaces.values())
+    if engine_enabled:
+        print("  Engine: enabled")
+
     pid_path = _pid_file(data_dir)
     pid_path.write_text(str(os.getpid()))
 
     try:
-        if config.engine.enabled:
-            print("  Engine: enabled")
         tornado.ioloop.IOLoop.current().start()
     finally:
         if pid_path.exists():
@@ -190,7 +190,7 @@ def run(ctx: RunContext, nsref: str) -> None:  # pyright: ignore[reportUnusedPar
     namespaces = load_namespaces(config.namespaces, data_dir)
 
     node = None
-    for ns in namespaces.values():
+    for ns, _entry in namespaces.values():
         try:
             node = ns.get(nsref)
             break

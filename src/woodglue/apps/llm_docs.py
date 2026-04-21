@@ -18,6 +18,8 @@ from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 from typing_extensions import override
 
+from woodglue.config import NamespaceEntry
+
 
 def walk_namespace(ns: Namespace) -> list[tuple[str, NamespaceNode]]:
     """Return `(nsref, node)` pairs for every NamespaceNode in `ns`."""
@@ -28,17 +30,20 @@ API_TAG = "api"
 
 
 def build_method_index(
-    namespaces: dict[str, Namespace],
+    namespaces: dict[str, tuple[Namespace, NamespaceEntry]],
 ) -> dict[str, dict[str, NamespaceNode]]:
     """
     Build a flat lookup: `{prefix: {leaf_name: node}}`.
 
-    Only includes methods tagged with `"api"`. This resolves the nested
-    namespace structure into a simple two-level dict suitable for both
-    RPC dispatch and documentation generation.
+    Only includes methods tagged with `"api"` from namespaces where
+    `expose_api` is True. This resolves the nested namespace structure
+    into a simple two-level dict suitable for both RPC dispatch and
+    documentation generation.
     """
     index: dict[str, dict[str, NamespaceNode]] = {}
-    for prefix, ns in namespaces.items():
+    for prefix, (ns, entry) in namespaces.items():
+        if not entry.expose_api:
+            continue
         methods: dict[str, NamespaceNode] = {}
         for leaf_name, node in walk_namespace(ns):
             if API_TAG in node.tags:

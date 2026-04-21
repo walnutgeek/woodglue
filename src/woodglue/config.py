@@ -9,10 +9,10 @@ settings.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from lythonic.compose.engine import StorageConfig
-from pydantic import BaseModel
+from lythonic.compose.namespace import NsNodeConfig
+from pydantic import BaseModel, model_validator
 from pydantic_yaml import parse_yaml_file_as
 
 CONFIG_FILENAME = "woodglue.yaml"
@@ -37,10 +37,24 @@ class UiConfig(BaseModel):
     enabled: bool = True
 
 
-class EngineConfig(BaseModel):
-    """Lyth compose engine settings."""
+class NamespaceEntry(BaseModel):
+    """
+    Per-namespace configuration. Exactly one of `gref`, `file`, or `entries`
+    must be set to specify how the namespace is instantiated.
+    """
 
-    enabled: bool = False
+    gref: str | None = None
+    file: str | None = None
+    entries: list[NsNodeConfig] | None = None
+    expose_api: bool = True
+    run_engine: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> NamespaceEntry:
+        sources = [self.gref is not None, self.file is not None, self.entries is not None]
+        if sum(sources) != 1:
+            raise ValueError("Exactly one of gref, file, or entries must be set")
+        return self
 
 
 class AuthConfig(BaseModel):
@@ -53,19 +67,17 @@ class WoodglueConfig(BaseModel):
     """
     Root configuration loaded from `woodglue.yaml`.
 
-    `namespaces` maps a prefix string to one of:
-    - A GlobalRef string (e.g., `"woodglue.hello:ns"`)
-    - A YAML file path ending in `.yaml`/`.yml`
-    - An inline list of `NsNodeConfig` entries
+    `namespaces` maps a prefix string to a `NamespaceEntry` dict with exactly
+    one of `gref`, `file`, or `entries`, plus optional `expose_api` and
+    `run_engine` flags.
     """
 
     host: str = "127.0.0.1"
     port: int = 5321
     storage: WoodglueStorageConfig = WoodglueStorageConfig()
-    namespaces: dict[str, Any]
+    namespaces: dict[str, NamespaceEntry]
     docs: DocsConfig = DocsConfig()
     ui: UiConfig = UiConfig()
-    engine: EngineConfig = EngineConfig()
     auth: AuthConfig = AuthConfig()
 
 

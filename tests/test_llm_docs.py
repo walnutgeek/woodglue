@@ -9,6 +9,7 @@ from woodglue.apps.llm_docs import (
     generate_method_markdown,
     generate_openapi_spec,
 )
+from woodglue.config import NamespaceEntry
 
 
 class ItemIn(BaseModel):
@@ -35,14 +36,17 @@ def simple_add(a: int, b: int) -> int:
     return a + b
 
 
-def _make_namespaces() -> dict[str, Namespace]:
+def _make_namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
     ns1 = Namespace()
     ns1.register(create_item, nsref="create_item", tags=["api"])
 
     ns2 = Namespace()
     ns2.register(simple_add, nsref="simple_add", tags=["api"])
 
-    return {"items": ns1, "math": ns2}
+    return {
+        "items": (ns1, NamespaceEntry(gref="dummy")),
+        "math": (ns2, NamespaceEntry(gref="dummy")),
+    }
 
 
 def test_generate_llms_txt():
@@ -65,9 +69,25 @@ def test_generate_llms_txt_no_docstring():
     """Methods without docstrings use the qualified name as teaser."""
     ns = Namespace()
     ns.register(_identity, nsref="identity", tags=["api"])
-    index = build_method_index({"misc": ns})
+    index = build_method_index({"misc": (ns, NamespaceEntry(gref="dummy"))})
     txt = generate_llms_txt(index)
     assert "- [misc.identity](/docs/methods/misc.identity.md)" in txt
+
+
+def test_expose_api_false_excluded_from_method_index():
+    """Namespaces with expose_api=False are excluded from the method index."""
+    ns_exposed = Namespace()
+    ns_exposed.register(simple_add, nsref="simple_add", tags=["api"])
+    ns_hidden = Namespace()
+    ns_hidden.register(create_item, nsref="create_item", tags=["api"])
+
+    namespaces = {
+        "exposed": (ns_exposed, NamespaceEntry(gref="dummy")),
+        "hidden": (ns_hidden, NamespaceEntry(gref="dummy", expose_api=False)),
+    }
+    index = build_method_index(namespaces)
+    assert "exposed" in index
+    assert "hidden" not in index
 
 
 def test_generate_method_markdown_with_basemodel():

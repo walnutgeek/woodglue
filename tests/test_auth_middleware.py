@@ -10,16 +10,16 @@ from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
-from woodglue.config import AuthConfig, WoodglueConfig, WoodglueStorageConfig
+from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig, WoodglueStorageConfig
 from woodglue.hello import hello, pydantic_hello
 from woodglue.token_store import ensure_token
 
 
-def _make_namespaces() -> dict[str, Namespace]:
+def _make_namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
     ns = Namespace()
     ns.register(hello, nsref="hello", tags=["api"])
     ns.register(pydantic_hello, nsref="pydantic_hello", tags=["api"])
-    return {"test": ns}
+    return {"test": (ns, NamespaceEntry(gref="test"))}
 
 
 def _rpc_body(method: str, params: dict[str, Any] | None = None) -> str:
@@ -50,7 +50,7 @@ class TestAuthEnabled(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
         config = WoodglueConfig(
-            namespaces={"test": "unused"},
+            namespaces={"test": NamespaceEntry(gref="unused")},
             auth=AuthConfig(enabled=True),
             storage=WoodglueStorageConfig(auth_db=self._db_path),
         )
@@ -106,7 +106,7 @@ class TestAuthDisabled(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
         config = WoodglueConfig(
-            namespaces={"test": "unused"},
+            namespaces={"test": NamespaceEntry(gref="unused")},
             auth=AuthConfig(enabled=False),
         )
         return create_app(namespaces=_make_namespaces(), config=config)
