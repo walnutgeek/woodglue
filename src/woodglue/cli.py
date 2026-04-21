@@ -131,7 +131,36 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
 
     namespaces = load_namespaces(config.namespaces, data_dir)
 
-    app = create_app(namespaces=namespaces, config=config)
+    # Build MountContext for every namespace
+    from woodglue.mount import MountContext
+
+    mounts_dir = data_dir / "mounts"
+    mounts: dict[str, MountContext] = {
+        prefix: MountContext(prefix, mounts_dir) for prefix in namespaces
+    }
+
+    # Build engines for namespaces with run_engine=True
+    from woodglue.engine import EngineRegistry, activate_triggers, create_engine
+
+    registry = EngineRegistry()
+    for prefix, (ns, entry) in namespaces.items():
+        if entry.run_engine:
+            engine = create_engine(prefix, ns, mounts[prefix])
+            activated = activate_triggers(engine)
+            registry.register(engine)
+            if activated:
+                print(f"  Triggers activated for '{prefix}': {', '.join(activated)}")
+
+    # If any engines exist, build the engine facade namespace
+    if registry.has_engines():
+        from woodglue.apps.engine_api import build_engine_namespace
+
+        facade_ns = build_engine_namespace(registry)
+        facade_entry = NamespaceEntry(gref="builtin:engine")
+        namespaces["engine"] = (facade_ns, facade_entry)
+        mounts["engine"] = MountContext("engine", mounts_dir)
+
+    app = create_app(namespaces=namespaces, config=config, engine_registry=registry, mounts=mounts)
     app.listen(port, host)
     print(f"Woodglue listening on http://{host}:{port}")
     print(f"  RPC endpoint: http://{host}:{port}/rpc")
@@ -140,16 +169,24 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     if config.ui.enabled:
         print(f"  UI:           http://{host}:{port}/ui/")
 
-    engine_enabled = any(entry.run_engine for _, entry in namespaces.values())
-    if engine_enabled:
-        print("  Engine: enabled")
+    if registry.has_engines():
+        print(f"  Engine: enabled ({', '.join(registry.list_prefixes())})")
 
     pid_path = _pid_file(data_dir)
     pid_path.write_text(str(os.getpid()))
 
+    # Start trigger managers once the IOLoop is running
+    if registry.has_engines():
+        tornado.ioloop.IOLoop.current().add_callback(registry.start_all)
+
     try:
         tornado.ioloop.IOLoop.current().start()
     finally:
+        if registry.has_engines():
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(registry.stop_all())
         if pid_path.exists():
             pid_path.unlink()
 

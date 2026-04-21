@@ -191,6 +191,13 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             )
             return
 
+        # Set current_mount context var for this namespace
+        from woodglue.mount import MountContext, current_mount
+
+        mounts: dict[str, MountContext] = self.application.settings.get("mounts", {})
+        mount = mounts.get(prefix)
+        token = current_mount.set(mount) if mount else None
+
         # Call the method
         try:
             result = node(**kwargs)
@@ -200,6 +207,9 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             logger.exception("Internal error calling %s", method)
             self.write(_error_response(INTERNAL_ERROR, "Internal error", request_id))
             return
+        finally:
+            if token is not None:
+                current_mount.reset(token)
 
         # Return result
         self.write(

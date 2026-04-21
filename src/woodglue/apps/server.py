@@ -11,11 +11,15 @@ from lythonic.compose.namespace import Namespace
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
 from woodglue.config import NamespaceEntry, WoodglueConfig
+from woodglue.engine import EngineRegistry
+from woodglue.mount import MountContext
 
 
 def create_app(
     namespaces: dict[str, tuple[Namespace, NamespaceEntry]],
     config: WoodglueConfig | None = None,
+    engine_registry: EngineRegistry | None = None,
+    mounts: dict[str, MountContext] | None = None,
 ) -> tornado.web.Application:
     """
     Build a Tornado Application with JSON-RPC and optional docs/UI routes.
@@ -62,4 +66,6 @@ def create_app(
         config=config,
         auth_enabled=config.auth.enabled,
         auth_db=config.storage.auth_db,
+        engine_registry=engine_registry,
+        mounts=mounts or {},
     )
