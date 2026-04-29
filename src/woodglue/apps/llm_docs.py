@@ -10,6 +10,8 @@ Generates three artifact types:
 from __future__ import annotations
 
 import inspect
+import types
+import typing
 from typing import Any
 
 import tornado.web
@@ -74,40 +76,64 @@ def _is_basemodel(annotation: Any) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, BaseModel)
 
 
+def _resolve_annotations(method: Method) -> dict[str, Any]:
+    """Resolve stringified annotations (from `from __future__ import annotations`)."""
+    try:
+        return typing.get_type_hints(method.o)
+    except Exception:
+        return {}
+
+
+def _unwrap_annotation(ann: Any) -> Any:
+    """Extract the inner type from generic wrappers like list[X] | None."""
+    # Unwrap union (X | None → X) then list (list[X] → X), recursively
+    while True:
+        origin = getattr(ann, "__origin__", None)
+        if isinstance(ann, types.UnionType) or origin is typing.Union:  # pyright: ignore[reportDeprecated]
+            type_args = getattr(ann, "__args__", ())
+            non_none = [a for a in type_args if a is not type(None)]
+            if len(non_none) == 1:
+                ann = non_none[0]
+                continue
+        if origin is list:
+            type_args = getattr(ann, "__args__", ())
+            if type_args:
+                ann = type_args[0]
+                continue
+        break
+    return ann
+
+
 def _collect_referenced_models(method: Method) -> list[type[BaseModel]]:
     """
     Collect all BaseModel types referenced by a method's args and return type,
     recursively expanding nested models.
     """
+    resolved = _resolve_annotations(method)
     seen: set[type[BaseModel]] = set()
     queue: list[type[BaseModel]] = []
 
-    for arg in method.args:
-        ann = arg.annotation
+    def _check(ann: Any) -> None:
+        ann = _unwrap_annotation(ann)
         if _is_basemodel(ann):
             assert isinstance(ann, type) and issubclass(ann, BaseModel)
             if ann not in seen:
                 seen.add(ann)
                 queue.append(ann)
 
-    ret = method.return_annotation
-    if _is_basemodel(ret):
-        assert isinstance(ret, type) and issubclass(ret, BaseModel)
-        if ret not in seen:
-            seen.add(ret)
-            queue.append(ret)
+    for arg in method.args:
+        ann = resolved.get(arg.name, arg.annotation)
+        _check(ann)
+
+    ret = resolved.get("return", method.return_annotation)
+    _check(ret)
 
     # Expand nested models
     i = 0
     while i < len(queue):
         model = queue[i]
         for field_info in model.model_fields.values():
-            field_ann = field_info.annotation
-            if _is_basemodel(field_ann):
-                assert isinstance(field_ann, type) and issubclass(field_ann, BaseModel)
-                if field_ann not in seen:
-                    seen.add(field_ann)
-                    queue.append(field_ann)
+            _check(field_info.annotation)
         i += 1
 
     return queue
@@ -169,6 +195,7 @@ def generate_method_markdown(prefix: str, method_name: str, node: NamespaceNode)
     Generate full markdown documentation for a single method.
     """
     method = node.method
+    resolved = _resolve_annotations(method)
     qualified = f"{prefix}.{method_name}"
 
     doc = method.doc or ""
@@ -186,13 +213,14 @@ def generate_method_markdown(prefix: str, method_name: str, node: NamespaceNode)
     ]
 
     for arg in method.args:
-        atype = _type_display(arg.annotation)
+        ann = resolved.get(arg.name, arg.annotation)
+        atype = _type_display(ann)
         required = "no" if arg.is_optional else "yes"
         desc = arg.description or "-"
         lines.append(f"| {arg.name} | {atype} | {required} | {desc} |")
 
     # Return type
-    ret = method.return_annotation
+    ret = resolved.get("return", method.return_annotation)
     if ret is not None and ret is not inspect.Parameter.empty:
         lines.extend(["", "## Returns", "", f"`{_type_display(ret)}`"])
 

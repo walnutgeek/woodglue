@@ -12,17 +12,17 @@ def test_state_path_creates_dir() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         mounts_dir = Path(tmp) / "mounts"
         ctx = MountContext("pipeline", mounts_dir)
-        path = ctx.state_path("dag.db")
+        path = ctx.state_path("dags.db")
         assert path.parent.is_dir()
-        assert path == mounts_dir / "pipeline" / "dag.db"
+        assert path == (mounts_dir / "pipeline" / "dags.db").resolve()
 
 
 def test_state_path_returns_correct_path() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         mounts_dir = Path(tmp) / "mounts"
         ctx = MountContext("etl", mounts_dir)
-        assert ctx.state_path("triggers.db") == mounts_dir / "etl" / "triggers.db"
-        assert ctx.state_path("cache.db") == mounts_dir / "etl" / "cache.db"
+        assert ctx.state_path("triggers.db") == (mounts_dir / "etl" / "triggers.db").resolve()
+        assert ctx.state_path("cache.db") == (mounts_dir / "etl" / "cache.db").resolve()
 
 
 def test_dir_not_created_until_state_path_called() -> None:

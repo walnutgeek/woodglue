@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lythonic.compose.dag_provenance import DagProvenance
 from lythonic.compose.namespace import Namespace
 from lythonic.compose.trigger import TriggerManager, TriggerStore
-
-from woodglue.mount import MountContext
 
 
 @dataclass
@@ -17,7 +14,6 @@ class NamespaceEngine:
 
     prefix: str
     namespace: Namespace
-    provenance: DagProvenance
     trigger_store: TriggerStore
     trigger_manager: TriggerManager
 
@@ -55,17 +51,18 @@ class EngineRegistry:
             engine.trigger_manager.stop()
 
 
-def create_engine(prefix: str, namespace: Namespace, mount: MountContext) -> NamespaceEngine:
-    """Create engine instances for a namespace using its mount state dir."""
-    provenance = DagProvenance(mount.state_path("dag.db"))
-    trigger_store = TriggerStore(mount.state_path("triggers.db"))
+def create_engine(prefix: str, namespace: Namespace) -> NamespaceEngine:
+    """Create engine instances for a namespace. Namespace must be mounted first."""
+    storage = namespace._storage  # pyright: ignore[reportPrivateUsage]  # set by mount()
+    assert storage.triggers_db is not None, "namespace must be mounted with triggers_db"
+    trigger_store = TriggerStore(storage.triggers_db)
+    provenance = namespace._provenance  # pyright: ignore[reportPrivateUsage]
     trigger_manager = TriggerManager(
         namespace=namespace, store=trigger_store, provenance=provenance
     )
     return NamespaceEngine(
         prefix=prefix,
         namespace=namespace,
-        provenance=provenance,
         trigger_store=trigger_store,
         trigger_manager=trigger_manager,
     )

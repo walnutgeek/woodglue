@@ -1,4 +1,7 @@
-from lythonic.compose.namespace import Namespace
+from datetime import datetime
+
+from lythonic import GlobalRef, utc_now
+from lythonic.compose.namespace import Namespace, NsCacheConfig, TriggerConfig
 from pydantic import BaseModel, Field
 
 
@@ -18,6 +21,7 @@ class HelloIn(BaseModel):
 class HelloOut(BaseModel):
     eman: str = Field(default="enon", description="inversed name")
     ega: int
+    stamp: datetime = Field(default_factory=utc_now)
 
 
 def pydantic_hello(input: HelloIn) -> HelloOut:
@@ -30,5 +34,27 @@ def pydantic_hello(input: HelloIn) -> HelloOut:
     return HelloOut(eman=input.name[::-1], ega=-input.age)
 
 
+def cached_hello(name: str, age: int) -> HelloOut:
+    return pydantic_hello(HelloIn(name=name, age=age))
+
+
 ns = Namespace()
 ns.register_all(hello, pydantic_hello, tags=["api"])
+
+ns.register(
+    cached_hello,
+    config=NsCacheConfig(
+        nsref=str(GlobalRef(cached_hello)),
+        tags=["api"],
+        min_ttl=0.5,
+        max_ttl=1.0,
+        triggers=[
+            TriggerConfig(
+                schedule="59 * * * *",
+                name="hourly_cached_hello",
+                type="poll",
+                payload={"name": "jon", "age": 20},
+            )
+        ],
+    ),
+)

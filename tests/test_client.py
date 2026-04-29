@@ -38,7 +38,8 @@ class TestWoodglueClient(tornado.testing.AsyncHTTPTestCase):
         """Without spec loading, returns raw dict."""
         client = WoodglueClient(self.get_url(""))
         result = await client.call("test.pydantic_hello", input={"name": "Alice", "age": 30})
-        assert result == {"eman": "ecilA", "ega": -30}
+        assert result["eman"] == "ecilA"
+        assert result["ega"] == -30
 
     @tornado.testing.gen_test
     async def test_call_with_return_type(self):

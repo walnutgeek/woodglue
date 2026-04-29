@@ -17,12 +17,12 @@ persistent state, it uses a lazily-created directory under `data/mounts/`:
 data/
   mounts/
     pipeline/         # state dir for prefix "pipeline"
-      dag.db          # DagProvenance SQLite
+      dags.db          # DagProvenance SQLite
       triggers.db     # TriggerStore SQLite
       cache.db        # optional: caching logic
       ...             # arbitrary files from namespace logic
     etl/
-      dag.db
+      dags.db
       triggers.db
 ```
 
@@ -69,8 +69,8 @@ if `state_path()` is actually called.
 
 ### WoodglueStorageConfig changes
 
-Remove `dag_db` and `trigger_db` from `WoodglueStorageConfig`. These are now
-per-namespace, resolved via `mount.state_path("dag.db")` and
+Remove `dags_db` and `triggers_db` from `WoodglueStorageConfig`. These are now
+per-namespace, resolved via `mount.state_path("dags.db")` and
 `mount.state_path("triggers.db")`. Keep `cache_db` (global app-level cache),
 `auth_db`, and `log_file` as global.
 
@@ -110,7 +110,7 @@ In `cli.py start()`:
 1. Load config and namespaces (existing)
 2. Build `MountContext` for each prefix
 3. For each namespace with `run_engine=True`:
-   a. Create `DagProvenance(mount.state_path("dag.db"))`
+   a. Create `DagProvenance(mount.state_path("dags.db"))`
    b. Create `TriggerStore(mount.state_path("triggers.db"))`
    c. Create `TriggerManager(namespace, store, provenance)`
    d. Activate triggers from namespace node configs
@@ -195,7 +195,7 @@ one namespace has `run_engine=True`. It is not configurable in `woodglue.yaml`
 | `src/woodglue/mount.py` | New: `MountContext`, `current_mount` context var |
 | `src/woodglue/engine.py` | New: `NamespaceEngine`, `EngineRegistry` |
 | `src/woodglue/apps/engine_api.py` | New: facade namespace functions |
-| `src/woodglue/config.py` | Remove `dag_db`, `trigger_db` from `WoodglueStorageConfig` |
+| `src/woodglue/config.py` | Remove `dags_db`, `triggers_db` from `WoodglueStorageConfig` |
 | `src/woodglue/cli.py` | Build mounts, registry, facade at startup |
 | `src/woodglue/apps/server.py` | Store registry in app settings |
 | `src/woodglue/apps/rpc.py` | Set `current_mount` before dispatching |
@@ -210,4 +210,4 @@ one namespace has `run_engine=True`. It is not configurable in `woodglue.yaml`
 - `engine.list_namespaces()` reflects only `run_engine=True` prefixes
 - Facade returns error for unknown namespace prefix
 - Two namespaces with same structure but different prefixes have isolated state
-- `WoodglueStorageConfig` no longer has `dag_db` / `trigger_db`
+- `WoodglueStorageConfig` no longer has `dags_db` / `triggers_db`

@@ -182,7 +182,9 @@ class TestMultiNamespaceRpc(tornado.testing.AsyncHTTPTestCase):
         )
         assert resp.code == 200
         data = json.loads(resp.body)
-        assert data["result"] == {"eman": "ecilA", "ega": -30}
+        result = data["result"]
+        assert result["eman"] == "ecilA"
+        assert result["ega"] == -30
 
     def test_method_without_prefix_returns_not_found(self):
         resp = self.fetch(

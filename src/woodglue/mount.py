@@ -20,7 +20,7 @@ class MountContext:
 
     def __init__(self, prefix: str, mounts_dir: Path) -> None:
         self.prefix = prefix
-        self.state_dir = mounts_dir / prefix
+        self.state_dir = (mounts_dir / prefix).resolve()
         self._dir_created = False
 
     def state_path(self, filename: str) -> Path:

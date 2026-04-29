@@ -39,19 +39,15 @@ def _pid_file(data_dir: Path) -> Path:
 
 def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
     """Resolve storage paths relative to data_dir, in place."""
+    from lythonic.compose.engine import resolve_file
+
     storage = config.storage
-    if storage.cache_db is not None and not storage.cache_db.is_absolute():
-        storage.cache_db = data_dir / storage.cache_db
-    if storage.dag_db is not None and not storage.dag_db.is_absolute():
-        storage.dag_db = data_dir / storage.dag_db
-    if storage.trigger_db is not None and not storage.trigger_db.is_absolute():
-        storage.trigger_db = data_dir / storage.trigger_db
-    if storage.auth_db is None:
-        storage.auth_db = data_dir / "auth.db"
-    elif not storage.auth_db.is_absolute():
-        storage.auth_db = data_dir / storage.auth_db
-    if storage.log_file is not None and not storage.log_file.is_absolute():
-        storage.log_file = data_dir / storage.log_file
+    user_log_file = storage.log_file  # save before resolve_paths overwrites
+    storage.resolve_paths(data_dir)
+    # Override log_file default ("lyth.log" -> "wgl.log")
+    storage.log_file = resolve_file(data_dir, user_log_file, "wgl.log")
+    # Resolve auth_db (woodglue-specific)
+    storage.auth_db = resolve_file(data_dir, storage.auth_db, "auth.db")
 
 
 def load_namespaces(
@@ -64,8 +60,7 @@ def load_namespaces(
     `entries`. Returns `(Namespace, NamespaceEntry)` tuples so callers
     can inspect per-namespace flags like `expose_api` and `run_engine`.
     """
-    from lythonic.compose.engine import EngineConfig as LythEngineConfig
-    from pydantic_yaml import parse_yaml_file_as
+    import yaml
 
     result: dict[str, tuple[Namespace, NamespaceEntry]] = {}
     for prefix, ns_entry in ns_map.items():
@@ -76,25 +71,12 @@ def load_namespaces(
             result[prefix] = (ns, ns_entry)
         elif ns_entry.file is not None:
             config_path = data_dir / ns_entry.file
-            engine_config = parse_yaml_file_as(LythEngineConfig, config_path)
-            ns = Namespace()
-            for entry in engine_config.namespace:
-                if entry.gref is not None:
-                    ns.register(
-                        str(entry.gref),
-                        tags=entry.tags,
-                        config=entry,
-                    )
+            raw = yaml.safe_load(config_path.read_text())
+            ns = Namespace.from_dict(raw.get("namespace", []))
             result[prefix] = (ns, ns_entry)
         elif ns_entry.entries is not None:
-            ns = Namespace()
-            for entry in ns_entry.entries:
-                if entry.gref is not None:
-                    ns.register(
-                        str(entry.gref),
-                        tags=entry.tags,
-                        config=entry,
-                    )
+            entries = [e.model_dump(exclude_none=True) for e in ns_entry.entries]
+            ns = Namespace.from_dict(entries)
             result[prefix] = (ns, ns_entry)
     return result
 
@@ -112,6 +94,16 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
 
     config = load_config(data_dir)
     _resolve_storage(config, data_dir)
+
+    # File logging (same format as lyth)
+    from lythonic.compose.engine import LogConfig
+
+    LogConfig(
+        log_file=config.storage.log_file,
+        log_level=config.storage.log_level,
+        loggers=config.storage.loggers,
+    ).setup_logging()
+    print(f"  Logging to {config.storage.log_file}")
 
     # CLI args override config values
     host = root.host if root.host != "127.0.0.1" else config.host
@@ -139,26 +131,32 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
         prefix: MountContext(prefix, mounts_dir) for prefix in namespaces
     }
 
-    # Build engines for namespaces with run_engine=True
+    # Mount and build engines for namespaces with run_engine=True
+    from lythonic.compose.engine import StorageConfig as LythStorageConfig
+
     from woodglue.engine import EngineRegistry, activate_triggers, create_engine
 
     registry = EngineRegistry()
     for prefix, (ns, entry) in namespaces.items():
         if entry.run_engine:
-            engine = create_engine(prefix, ns, mounts[prefix])
+            mount = mounts[prefix]
+            storage = LythStorageConfig()
+            storage.resolve_paths(mount.state_dir)
+            storage.log_file = None  # global logging already configured
+            ns.mount(storage)
+            engine = create_engine(prefix, ns)
             activated = activate_triggers(engine)
             registry.register(engine)
             if activated:
                 print(f"  Triggers activated for '{prefix}': {', '.join(activated)}")
 
-    # If any engines exist, build the engine facade namespace
-    if registry.has_engines():
-        from woodglue.apps.engine_api import build_engine_namespace
+    # Always mount the system namespace (introspection + engine facade)
+    from woodglue.apps.system_api import build_system_namespace
 
-        facade_ns = build_engine_namespace(registry)
-        facade_entry = NamespaceEntry(gref="builtin:engine")
-        namespaces["engine"] = (facade_ns, facade_entry)
-        mounts["engine"] = MountContext("engine", mounts_dir)
+    system_ns = build_system_namespace(namespaces, registry if registry.has_engines() else None)
+    system_entry = NamespaceEntry(gref="builtin:system", expose_api=True)
+    namespaces["system"] = (system_ns, system_entry)
+    mounts["system"] = MountContext("system", mounts_dir)
 
     app = create_app(namespaces=namespaces, config=config, engine_registry=registry, mounts=mounts)
     app.listen(port, host)

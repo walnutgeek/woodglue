@@ -15,7 +15,6 @@ def _make_engine(prefix: str) -> NamespaceEngine:
     return NamespaceEngine(
         prefix=prefix,
         namespace=Namespace(),
-        provenance=MagicMock(),
         trigger_store=MagicMock(),
         trigger_manager=MagicMock(),
     )
@@ -52,6 +51,8 @@ def test_engine_registry_get_missing_raises() -> None:
 
 
 def test_create_engine_wires_paths() -> None:
+    from lythonic.compose.engine import StorageConfig as LythStorageConfig
+
     from woodglue.engine import create_engine
     from woodglue.mount import MountContext
 
@@ -60,8 +61,12 @@ def test_create_engine_wires_paths() -> None:
         mount = MountContext("test_ns", mounts_dir)
         ns = Namespace()
 
-        engine = create_engine("test_ns", ns, mount)
+        storage = LythStorageConfig()
+        storage.resolve_paths(mount.state_dir)
+        ns.mount(storage)
+
+        engine = create_engine("test_ns", ns)
         assert engine.prefix == "test_ns"
         assert engine.namespace is ns
-        # The state dir should have been created (DagProvenance and TriggerStore init)
+        # The state dir should have been created (mount + TriggerStore init)
         assert mount.state_dir.exists()

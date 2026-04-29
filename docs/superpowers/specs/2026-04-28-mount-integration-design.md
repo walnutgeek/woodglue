@@ -52,8 +52,8 @@ from lythonic.compose.engine import StorageConfig
 
 storage = StorageConfig(
     cache_db=mount.state_path("cache.db"),
-    dag_db=mount.state_path("dag.db"),
-    trigger_db=mount.state_path("triggers.db"),
+    dags_db=mount.state_path("dags.db"),
+    triggers_db=mount.state_path("triggers.db"),
 )
 ns.mount(storage)
 ```

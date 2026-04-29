@@ -281,10 +281,10 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
     storage = config.storage
     if storage.cache_db is not None and not storage.cache_db.is_absolute():
         storage.cache_db = data_dir / storage.cache_db
-    if storage.dag_db is not None and not storage.dag_db.is_absolute():
-        storage.dag_db = data_dir / storage.dag_db
-    if storage.trigger_db is not None and not storage.trigger_db.is_absolute():
-        storage.trigger_db = data_dir / storage.trigger_db
+    if storage.dags_db is not None and not storage.dags_db.is_absolute():
+        storage.dags_db = data_dir / storage.dags_db
+    if storage.triggers_db is not None and not storage.triggers_db.is_absolute():
+        storage.triggers_db = data_dir / storage.triggers_db
     if storage.auth_db is not None and not storage.auth_db.is_absolute():
         storage.auth_db = data_dir / storage.auth_db
     if storage.log_file is not None and not storage.log_file.is_absolute():
@@ -393,11 +393,11 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
                 from lythonic.compose.dag_provenance import DagProvenance
                 from lythonic.compose.trigger import TriggerManager, TriggerStore
 
-                trigger_db = config.storage.trigger_db or (data_dir / "triggers.db")
-                dag_db = config.storage.dag_db or (data_dir / "dags.db")
+                triggers_db = config.storage.triggers_db or (data_dir / "triggers.db")
+                dags_db = config.storage.dags_db or (data_dir / "dags.db")
 
-                trigger_store = TriggerStore(trigger_db)
-                provenance = DagProvenance(dag_db)
+                trigger_store = TriggerStore(triggers_db)
+                provenance = DagProvenance(dags_db)
                 # Merge all namespaces into one for the engine
                 merged = Namespace()
                 for ns in namespaces.values():

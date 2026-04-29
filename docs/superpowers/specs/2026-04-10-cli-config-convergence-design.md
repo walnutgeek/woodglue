@@ -49,8 +49,8 @@ class WoodglueConfig(BaseModel):
 ```yaml
 storage:
   cache_db: cache.db
-  dag_db: dags.db
-  trigger_db: triggers.db
+  dags_db: dags.db
+  triggers_db: triggers.db
   auth_db: auth.db
   log_file: woodglue.log
 

@@ -7,7 +7,7 @@ Based on: `docs/superpowers/specs/2026-04-28-mount-integration-design.md`
 **Remove** `DagProvenance` import and `provenance` field from `NamespaceEngine`.
 
 **Change** `create_engine()`:
-- Remove `DagProvenance(mount.state_path("dag.db"))` — mount() handles this
+- Remove `DagProvenance(mount.state_path("dags.db"))` — mount() handles this
 - Read `namespace._provenance` for TriggerManager's provenance arg
 - Signature stays the same: `create_engine(prefix, namespace, mount)`
 
@@ -24,7 +24,7 @@ class NamespaceEngine:
     trigger_manager: TriggerManager
 
 def create_engine(prefix, namespace, mount):
-    provenance = DagProvenance(mount.state_path("dag.db"))
+    provenance = DagProvenance(mount.state_path("dags.db"))
     trigger_store = TriggerStore(mount.state_path("triggers.db"))
     trigger_manager = TriggerManager(namespace=namespace, store=trigger_store, provenance=provenance)
     return NamespaceEngine(prefix, namespace, provenance, trigger_store, trigger_manager)
@@ -83,8 +83,8 @@ for prefix, (ns, entry) in namespaces.items():
         mount = mounts[prefix]
         storage = LythStorageConfig(
             cache_db=mount.state_path("cache.db"),
-            dag_db=mount.state_path("dag.db"),
-            trigger_db=mount.state_path("triggers.db"),
+            dags_db=mount.state_path("dags.db"),
+            triggers_db=mount.state_path("triggers.db"),
         )
         ns.mount(storage)
         engine = create_engine(prefix, ns, mount)

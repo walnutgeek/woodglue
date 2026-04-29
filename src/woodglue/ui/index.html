@@ -3,20 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Woodglue API Docs</title>
+  <title>Woodglue</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
   <div id="app">
     <nav id="sidebar">
-      <h1>Woodglue</h1>
+      <div id="sidebar-header">
+        <h1><span class="logo-mark">//</span> woodglue</h1>
+      </div>
       <div id="nav-tree"></div>
     </nav>
-    <main id="content">
-      <div id="doc-content">
-        <p>Select a method from the sidebar.</p>
+    <div id="main">
+      <div id="breadcrumb"></div>
+      <div id="content">
+        <div id="view"></div>
       </div>
-    </main>
+    </div>
+    <div id="detail-panel" class="hidden">
+      <div id="detail-header">
+        <span id="detail-title"></span>
+        <button id="detail-close">&times;</button>
+      </div>
+      <div id="detail-body"></div>
+    </div>
   </div>
   <script type="module" src="./src/main.js"></script>
 </body>

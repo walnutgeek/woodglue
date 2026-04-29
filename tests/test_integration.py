@@ -104,7 +104,8 @@ class TestIntegration(tornado.testing.AsyncHTTPTestCase):
         assert data["result"] == 4
 
         data = self._rpc_call("pub.pydantic_hello", {"input": {"name": "Alice", "age": 30}})
-        assert data["result"] == {"eman": "ecilA", "ega": -30}
+        assert data["result"]["eman"] == "ecilA"
+        assert data["result"]["ega"] == -30
 
         data = self._rpc_call("internal.greet", {"name": "hi"})
         assert "result" in data

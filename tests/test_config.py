@@ -110,7 +110,7 @@ def test_load_namespaces_from_yaml():
         ns, loaded_entry = namespaces["greet"]
         assert loaded_entry.expose_api is True
         assert loaded_entry.run_engine is False
-        node = ns.get("woodglue.hello:hello")
+        node = ns.get("hello")
         assert node is not None
         assert "api" in node.tags
 
@@ -143,7 +143,7 @@ def test_load_namespaces_inline():
     assert "inline" in namespaces
     ns, loaded_entry = namespaces["inline"]
     assert loaded_entry.entries is not None
-    node = ns.get("woodglue.hello:hello")
+    node = ns.get("hello")
     assert node is not None
     assert "api" in node.tags
 
