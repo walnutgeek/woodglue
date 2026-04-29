@@ -29,6 +29,7 @@ def _make_registry_with_ns(tmp_path: Path) -> EngineRegistry:
     mount = MountContext("demo", mounts_dir)
     storage = LythStorageConfig()
     storage.resolve_paths(mount.state_dir)
+    storage.log_file = None  # no file logging in tests (Windows cleanup)
     ns.mount(storage)
     engine = create_engine("demo", ns)
     reg = EngineRegistry()

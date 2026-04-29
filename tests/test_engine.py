@@ -63,6 +63,7 @@ def test_create_engine_wires_paths() -> None:
 
         storage = LythStorageConfig()
         storage.resolve_paths(mount.state_dir)
+        storage.log_file = None  # no file logging in tests (Windows cleanup)
         ns.mount(storage)
 
         engine = create_engine("test_ns", ns)
