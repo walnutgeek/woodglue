@@ -7,6 +7,24 @@ features requires manually starting the server, navigating the UI, and taking
 screenshots. There's no reusable workflow or artifact for sharing what the UI
 looks like and how it works.
 
+## Skill Argument
+
+The skill accepts an optional prompt describing what to highlight: specific
+UI functionality, code paths, RPC calls, or features to showcase.
+
+If no argument is provided, Claude reviews recent git changes and identifies
+notable functionality to demonstrate.
+
+Before taking screenshots, Claude plans the slide sequence — consider the
+narrative arc and arrange topics in logical order.
+
+### Output Filename
+
+`docs/ai/decks/{date}-{name}.html` where:
+- `{date}` — today's date via `date +%Y-%m-%d`
+- `{name}` — up to 25 chars summarizing the prompt, lowercase with dashes
+  or underscores, no spaces. Default: `ui-deck`
+
 ## Solution
 
 A Claude Code skill (`/ui_deck`) that starts the woodglue server, drives a
@@ -62,7 +80,7 @@ and "Engine/DAGs" sub-sections. Claude builds the narrative as it explores.
 
 ### HTML Deck Format
 
-Single self-contained HTML file (default: `data/ui_deck.html`).
+Single self-contained HTML file at the output path described above.
 
 **Structure:**
 - Navigation sidebar with clickable slide list grouped by section.
@@ -90,6 +108,7 @@ a temp location, executed, then removed.
 
 1. `.claude/skills/ui_deck.md` — skill instructions
 2. `pyproject.toml` — add `playwright` to dev deps
+3. `docs/ai/decks/` — output directory for generated decks (gitignored or committed per user choice)
 
 ## Verification
 
