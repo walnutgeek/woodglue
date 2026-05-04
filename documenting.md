@@ -40,6 +40,10 @@ docs/
     periodic.md               # ::: woodglue.periodic (Frequency, Interval, etc.)
     misc.md                   # ::: woodglue.misc (ensure_dir, tabula_rasa_path)
 
+  decks/                      # Curated UI decks (persistent, published via mkdocs)
+    index.md                  # Index page listing promoted decks
+    *.html                    # Notable decks promoted from docs/ai/decks/
+
 mkdocs.yml                    # Site configuration and nav structure
 ```
 
@@ -52,6 +56,7 @@ Following the [Diataxis](https://diataxis.fr/) framework:
 | **Tutorials** | Learning-oriented, follow along | `docs/tutorials/` |
 | **How-To Guides** | Task-oriented, solve a problem | `docs/how-to/` |
 | **Reference** | API documentation | `docs/reference/` + module docstrings |
+| **UI Decks** | Visual showcase of UI functionality | `docs/decks/` |
 | **Explanation** | Background, design decisions | `docs/explanation/` (future) |
 
 ## What Goes Where
@@ -134,19 +139,33 @@ Core module for SQLite ORM functionality.
 - Adding a new module to the project
 - Also add it to `nav:` in `mkdocs.yml`
 
-### Design Specs and Plans (`docs/superpowers/`)
+### UI Decks (`docs/decks/` and `docs/ai/decks/`)
 
-Technical design documents and implementation plans for features, generated
-during brainstorming and planning phases:
+Self-contained HTML presentations showcasing woodglue UI functionality, generated
+by the `/ui_deck` skill. Each deck is a single HTML file with base64-embedded
+screenshots and inline CSS/JS.
+
+The `/ui_deck` skill generates decks into `docs/ai/decks/` and maintains an
+`index.md` there listing all generated decks. Notable decks are manually
+promoted to `docs/decks/` before a release.
+
+- `docs/decks/` — curated decks published via mkdocs (persistent across releases)
+- `docs/decks/index.md` — index page listing promoted decks
+- `docs/ai/decks/` — all generated decks (ephemeral, wiped after release)
+- `docs/ai/decks/index.md` — auto-maintained index of generated decks
+
+### Ephemeral Directories (`docs/superpowers/`, `docs/ai/`)
+
+Working documents generated during development: design specs, implementation
+plans, and generated artifacts (including deck drafts in `docs/ai/decks/`).
 
 - `docs/superpowers/specs/` - Design specs (requirements, architecture, data models)
 - `docs/superpowers/plans/` - Implementation plans (task-by-task breakdown)
+- `docs/ai/decks/` - Generated UI decks (promote notable ones to `docs/decks/`)
 
-These are working documents, not user-facing.
-
-Directory `docs/superpowers/` preserved over release cycle, and wiped clean right 
-after release. So if you inspect release tag you can find all specs and tags that
-went into release. 
+These are not user-facing. Both directories are preserved over the release cycle
+and wiped clean right after release (by `/do_release`). Inspecting a release tag
+reveals the specs, plans, and decks that went into that release.
 
 ## Writing Guidelines
 
