@@ -5,7 +5,7 @@ from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from lythonic import GRef
+from lythonic import GlobalRef
 from lythonic.types import JsonBase, encode_base64, ensure_bytes, json_loads
 from pydantic import BaseModel, Field
 from typing_extensions import override
@@ -127,7 +127,7 @@ class ServerConfig(BaseModel):
 
 class App(BaseModel):
     name: str = Field(description="name of the app")
-    gref: GRef = Field(description="reference of the app module")
+    gref: GlobalRef = Field(description="reference of the app module")
     owned_by: Principal = Field(description="The principal that owns the app")
 
 

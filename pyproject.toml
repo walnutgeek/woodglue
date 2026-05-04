@@ -49,8 +49,8 @@ dependencies = [
 
 # ---- Source overrides (use `uv sync --no-sources` to fall back to PyPI) ----
 
-#[tool.uv.sources]
-#lythonic = { path = "../lythonic", editable = true }
+[tool.uv.sources]
+lythonic = { path = "../lythonic", editable = true }
 
 # ---- Dev dependencies ----
 
@@ -68,6 +68,7 @@ dev = [
     "coverage>=7.6.7",
     "pytest-cov>=7.0.0",
     "pytest-asyncio>=1.2.0",
+    "playwright>=1.59.0",
 ]
 docs = [
     "markdown-pycon>=1.0.1",

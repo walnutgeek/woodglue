@@ -3,6 +3,7 @@ namespaces:
     file: "hello_ns.yaml"
   gref_hello:
     gref: "woodglue.hello:ns"
+    run_engine: true
 
 docs:
   enabled: true
