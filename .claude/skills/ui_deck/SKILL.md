@@ -53,26 +53,33 @@ cd src/woodglue/ui && npm install && npx vite build
 
 ## Step 3: Start Server
 
-Start the server as a background process:
+Start the server as a background process. Note: `--data` and `--port` are
+top-level flags on `wgl`, NOT subcommand flags on `start`:
 
 ```bash
-uv run wgl start --data ./data &
+uv run wgl --data ./data start &
 ```
 
 Capture the PID from the background job or read it from `data/wgl.pid`.
 
-Wait for the server to be ready by polling `http://localhost:5321/ui/` until it
-returns HTTP 200 (timeout after 15 seconds). Example:
+**IMPORTANT: Always use `127.0.0.1`, never `localhost`.** The server binds
+`127.0.0.1` only. Using `localhost` may resolve to IPv6 `::1` first, causing
+connection refused or silent auth failures when curl retries on IPv4.
+
+Wait for the server to be ready:
 
 ```bash
 for i in $(seq 1 30); do
-  curl -s -o /dev/null -w "%{http_code}" http://localhost:5321/ui/ | grep -q 200 && break
+  curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5321/ui/ | grep -q 200 && break
   sleep 0.5
 done
 ```
 
-If auth is enabled, read the token from server output and note it for setting
-the browser cookie `wgl_token`.
+If auth is enabled, extract the token programmatically:
+
+```bash
+uv run python -c "from woodglue.token_store import get_single_token; print(get_single_token('data/auth.db'))"
+```
 
 If the server fails to start, report the error and stop.
 
@@ -80,11 +87,14 @@ If the server fails to start, report the error and stop.
 
 ### 4a: Discover Available Content
 
-Call RPC to discover what namespaces and capabilities are available:
+Call RPC to discover what namespaces and capabilities are available. If auth
+is enabled, include the Bearer token header. Always use `127.0.0.1`:
 
 ```bash
-curl -s http://localhost:5321/rpc \
+TOKEN="<token from step 3>"
+curl -s http://127.0.0.1:5321/rpc \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"jsonrpc":"2.0","method":"system.list_namespaces","id":1}'
 ```
 
@@ -129,7 +139,7 @@ with sync_playwright() as p:
         context.add_cookies([{
             "name": "wgl_token",
             "value": auth_token,
-            "domain": "localhost",
+            "domain": "127.0.0.1",
             "path": "/",
         }])
 
@@ -196,6 +206,37 @@ using the Write tool.
 
 - The Playwright script is disposable -- write it fresh each time, remove after use.
 - All screenshots are PNG at 1280x800 viewport.
-- If auth is enabled, set cookie `wgl_token` with the token value before navigating.
 - If the server fails to start, report the error and stop immediately.
 - The HTML deck must be completely self-contained (all images base64, all CSS/JS inline).
+
+### Auth Handling
+
+The woodglue UI stores the auth token in a `wgl_token` cookie, but sends it as
+an `Authorization: Bearer` header in JS fetch calls. Setting the cookie in
+Playwright is sufficient for the SPA at `/ui/` (the JS reads the cookie and
+adds the header). However, **do NOT navigate directly to non-SPA endpoints**
+like `/docs/llms.txt` or `/docs/openapi.json` -- those require the Bearer
+header which Playwright can't set on page navigations. Only screenshot pages
+under `/ui/`.
+
+### Known CSS Selectors
+
+Before writing the Playwright script, read `src/woodglue/ui/src/main.js` to
+find the actual CSS selectors. Key selectors as of v0.0.4:
+
+- `.ns-card` -- namespace cards on home view
+- `.run-row[data-run-id]` -- clickable run items in run list
+- `.graph-node[data-label]` -- clickable DAG nodes in graph SVG
+- `.io-load-btn` -- "Load I/O" button in node detail panel
+- `.detail-close` -- close button on detail panel (the X)
+- `text=<name>` -- sidebar method/namespace links (use Playwright text selector)
+
+Always verify selectors against the current main.js before scripting. Do NOT
+guess selectors like `.run-item`, `.dag-node`, `.node-box` -- these do not
+exist.
+
+### Networking
+
+Always use `http://127.0.0.1:<port>`, never `http://localhost:<port>`. The
+server binds `127.0.0.1` and `localhost` may resolve to IPv6 `::1`, causing
+connection failures or silent auth mismatches.
