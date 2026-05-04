@@ -68,6 +68,8 @@ nav:
           - woodglue.apps.rpc: reference/apps-rpc.md
           - woodglue.apps.llm_docs: reference/apps-llm-docs.md
       - woodglue.hello: reference/hello.md
+  - UI Decks: ai/decks/index.md
   - Release Notes:
+      - v0.0.4: release_notes/v0.0.4.md
       - v0.0.3: release_notes/v0.0.3.md
       - v0.0.2: release_notes/v0.0.2.md

@@ -49,8 +49,8 @@ dependencies = [
 
 # ---- Source overrides (use `uv sync --no-sources` to fall back to PyPI) ----
 
-[tool.uv.sources]
-lythonic = { path = "../lythonic", editable = true }
+#[tool.uv.sources]
+#lythonic = { path = "../lythonic", editable = true }
 
 # ---- Dev dependencies ----
 
