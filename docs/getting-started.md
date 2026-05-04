@@ -56,7 +56,7 @@ namespace:
 ## Start the Server
 
 ```bash
-wgl server start
+wgl start
 ```
 
 ## Call via JSON-RPC

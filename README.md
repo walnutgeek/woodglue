@@ -1,81 +1,80 @@
-# 🪵 WoodGlue
+# Woodglue
 
-![example workflow](https://github.com/walnutgeek/woodglue/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/walnutgeek/woodglue/actions/workflows/ci.yml/badge.svg)
+[![PyPI](https://img.shields.io/pypi/v/woodglue)](https://pypi.org/project/woodglue/)
+[![Python](https://img.shields.io/pypi/pyversions/woodglue)](https://pypi.org/project/woodglue/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **Stronger than wood when used right**
+JSON-RPC 2.0 server with auto-generated docs, built on [lythonic](https://github.com/walnutgeek/lythonic).
 
-WoodGlue is a self-documenting, opinionated async server framework that hosts both logic and data. Like the finest wood glue that creates bonds stronger than the wood itself, WoodGlue creates connections more robust than traditional server architectures.
+## Architecture
 
-## Why WoodGlue?
+```
+┌─────────────────────────────────────────────────┐
+│  woodglue                                       │
+│  HTTP server · JSON-RPC · Auth · UI · Docs      │
+├─────────────────────────────────────────────────┤
+│  lythonic                                       │
+│  Namespaces · DAGs · Caching · Triggers         │
+└─────────────────────────────────────────────────┘
+```
 
-In woodworking, the right glue applied correctly creates joints that are stronger than the surrounding wood. WoodGlue follows the same principle - when properly configured, it creates server architectures that are more resilient, performant, and maintainable than traditional approaches.
+**lythonic** provides the core runtime: namespaces for organizing methods, DAG-based orchestration, result caching, and scheduled triggers.
 
-### Key Features
+**woodglue** adds the serving layer: a Tornado HTTP server, JSON-RPC 2.0 dispatch, bearer token authentication, a built-in browser UI, and automatic docs generation (llms.txt, OpenAPI, per-method markdown).
 
-- **Self-documenting**: Your server documents itself
-- **Opinionated**: Built with best practices baked in
-- **Async-first**: Modern Python async/await patterns
-- **Data + Logic**: Host both your business logic and data together
-- **Type-safe**: Built on Pydantic for robust data validation
-- **Fast**: Powered by Polars for high-performance data operations
+## Features
+
+- JSON-RPC 2.0 with multi-namespace routing (`billing.create_invoice`, `analytics.query`)
+- Auto-generated docs: `llms.txt` index, per-method markdown, OpenAPI 3.0.3
+- Built-in UI for API browsing, trigger management, and DAG visualization
+- Bearer token authentication
+- Typed async client with auto-resolved return types via `x-global-ref`
+- YAML-driven namespace configuration with per-method tags
+- DAG orchestration with scheduled triggers (via lythonic)
 
 ## Quick Start
 
 ```bash
-# Install WoodGlue
 pip install woodglue
-
-# Start the server with auto-discovered methods from your module
-wgl server start --module_path=mypackage.api
-
-# JSON-RPC call
-curl -X POST http://localhost:8888/rpc \
-  -d '{"jsonrpc":"2.0","method":"mypackage.api:my_function","params":{"name":"world"},"id":1}'
-
-# OpenAPI spec
-curl http://localhost:8888/docs
-
-# Human-readable API docs
-open http://localhost:8888/docs/ui
 ```
 
-## Let's Build Something Together
+Define a namespace with methods:
 
-WoodGlue is more than just a framework - it's a foundation for building robust, scalable applications. Whether you're crafting a simple API or architecting a complex distributed system, WoodGlue provides the adhesive that holds everything together.
+```python
+from lythonic.compose.namespace import Namespace
+from pydantic import BaseModel
 
-Ready to start building? Check out our examples, contribute to the project, or join our community of builders who believe in creating connections that last.
+class GreetIn(BaseModel):
+    name: str
 
----
+class GreetOut(BaseModel):
+    message: str
 
-*"The strength of the team is each individual member. The strength of each member is the team."* - Phil Jackson
+def greet(input: GreetIn) -> GreetOut:
+    return GreetOut(message=f"Hello, {input.name}!")
 
-Just like the finest wood glue, WoodGlue works best when we work together. Let's build something amazing.
+ns = Namespace()
+ns.register(greet, tags=["api"])
+```
 
-## Key Blocks
+Start the server:
 
-### Action
+```bash
+wgl start
+```
 
-Method that take one `BaseModel` argument, and return one.  Action may be invoked remotely via JSON-RPC within cluster by default, or can be exposed to as external API. Actions are building block of dataflow.
+Endpoints:
 
-### ActiveData action
+- `POST /rpc` -- JSON-RPC 2.0
+- `GET /docs/llms.txt` -- LLM-friendly method index
+- `GET /docs/openapi.json` -- OpenAPI 3.0.3 spec
+- `GET /ui/` -- browser UI
 
+## Documentation
 
-Decorated action with persistence logic. It could be for temporary caching or long time storage. 
+[walnutgeek.github.io/woodglue](https://walnutgeek.github.io/woodglue/)
 
-### Workflow
+## Star History
 
-DAG of tasks. Task is any method Tasks has to take care of data storage.
-
-### Kits
-
-Kit is combination of tightly related actions, workflows, public API, and UI.
-
-### 
-
-
-
-
-
-
-
-
+[![Star History Chart](https://api.star-history.com/svg?repos=walnutgeek/woodglue&type=Date)](https://star-history.com/#walnutgeek/woodglue&Date)

@@ -70,6 +70,7 @@ nav:
       - woodglue.hello: reference/hello.md
   - UI Decks: decks/index.md
   - Release Notes:
+      - v0.0.5: release_notes/v0.0.5.md
       - v0.0.4: release_notes/v0.0.4.md
       - v0.0.3: release_notes/v0.0.3.md
       - v0.0.2: release_notes/v0.0.2.md

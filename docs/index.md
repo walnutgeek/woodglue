@@ -2,19 +2,36 @@
 
 **Self-documenting opinionated async server that hosts logic and data.**
 
-Woodglue is a JSON-RPC 2.0 server built on Tornado that automatically
+Woodglue is a JSON-RPC 2.0 server built on Tornado and
+[lythonic](https://github.com/walnutgeek/lythonic) that automatically
 generates LLM-friendly documentation from your Python functions and
 Pydantic models.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  woodglue                                       │
+│  HTTP server · JSON-RPC · Auth · UI · Docs      │
+├─────────────────────────────────────────────────┤
+│  lythonic                                       │
+│  Namespaces · DAGs · Caching · Triggers         │
+└─────────────────────────────────────────────────┘
+```
+
+Woodglue is the HTTP layer; lythonic provides the core runtime
+(namespaces, DAG orchestration, caching, and scheduled triggers).
+
 ## Features
 
-- **JSON-RPC 2.0** — register Python functions, call them over HTTP
-- **Multi-namespace** — mount multiple namespaces with dot-prefixed routing
-- **BaseModel round-trip** — Pydantic models are deserialized on input and serialized on output
-- **LLM-friendly docs** — `llms.txt` index, per-method markdown, OpenAPI 3.0.3 spec
-- **JS documentation UI** — built-in browser-based API docs viewer
-- **Async client** — typed RPC client with auto-resolved return types via `x-global-ref`
-- **YAML config** — declarative namespace configuration with per-method tags
+- **JSON-RPC 2.0 with multi-namespace routing** — register Python functions, call them over HTTP with dot-prefixed namespace routing
+- **Auto-generated docs** — `llms.txt` index, per-method markdown, OpenAPI 3.0.3 spec
+- **Built-in UI** — browser-based API browsing, trigger management, DAG visualization
+- **Bearer token authentication** — configurable per-namespace auth
+- **Typed async client** — auto-resolved return types via `x-global-ref`
+- **YAML-driven namespace configuration** — declarative setup with per-method tags and explicit gref/file/entries fields
+- **DAG orchestration with scheduled triggers** — workflow execution and scheduling via lythonic
+- **System namespace** — the server's own management API is a regular namespace (dogfooding)
 
 ## Quick Start
 
@@ -54,10 +71,10 @@ ui:
 Run the server:
 
 ```bash
-wgl server start
+wgl start
 ```
 
-Endpoints:
+## Endpoints
 
 - `POST /rpc` — JSON-RPC 2.0 endpoint
 - `GET /docs/llms.txt` — method index
