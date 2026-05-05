@@ -75,6 +75,3 @@ Endpoints:
 
 [walnutgeek.github.io/woodglue](https://walnutgeek.github.io/woodglue/)
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=walnutgeek/woodglue&type=Date)](https://star-history.com/#walnutgeek/woodglue&Date)
