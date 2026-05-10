@@ -195,9 +195,10 @@ def build_system_namespace(
 
         trigger_configs: list[TriggerInfo] | None = None
         if _node_has_triggers(node):
-            trigger_configs = [
-                TriggerInfo(name=tc.name, schedule=tc.schedule) for tc in node.config.triggers
-            ]
+            trigger_configs = []
+            for tc in node.config.triggers:
+                assert tc.name is not None, "trigger name must be set after registration"
+                trigger_configs.append(TriggerInfo(name=tc.name, schedule=tc.schedule))
 
         return MethodInfo(
             nsref=nsref,

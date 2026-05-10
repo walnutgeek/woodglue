@@ -74,6 +74,7 @@ def activate_triggers(engine: NamespaceEngine) -> list[str]:
     for node in engine.namespace._nodes.values():  # pyright: ignore[reportPrivateUsage]
         if node.config and node.config.triggers:
             for tc in node.config.triggers:
+                assert tc.name is not None, "trigger name must be set after registration"
                 engine.trigger_manager.activate(tc.name)
                 activated.append(tc.name)
     return activated

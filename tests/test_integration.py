@@ -10,7 +10,7 @@ from typing import Any
 
 import tornado.testing
 from lythonic.compose.engine import EngineConfig
-from lythonic.compose.namespace import Namespace
+from lythonic.compose.namespace import Namespace, NsNodeConfig
 from typing_extensions import override
 
 from woodglue.apps.server import create_app
@@ -48,7 +48,8 @@ def _load_ns_from_yaml(
 
     engine_config = parse_yaml_raw_as(EngineConfig, yaml_content)
     ns = Namespace()
-    for entry in engine_config.namespace:
+    for raw in engine_config.namespace:
+        entry = NsNodeConfig.model_validate(raw)
         if entry.gref is not None:
             ns.register(str(entry.gref), nsref=entry.nsref, tags=entry.tags, config=entry)
     return ns
