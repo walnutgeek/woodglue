@@ -1099,16 +1099,38 @@ wheels = [
 
 [[package]]
 name = "lythonic"
-version = "0.0.18"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../lythonic" }
 dependencies = [
     { name = "croniter" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/fa/130febf46e15f4cb4780f828c909df61a78faf57990ddca1ee36b4816877/lythonic-0.0.18.tar.gz", hash = "sha256:c270e9d0b96a5fb46cec73fb8a4f92729ae70ce00c4c9ba27301f0c48326197b", size = 224606, upload-time = "2026-05-09T05:41:36.965Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/d9/226f06f065f37313696da9a3ef541035634d8bf420e8d7d16597d7a987ec/lythonic-0.0.18-py3-none-any.whl", hash = "sha256:dc8972c88efff90aec4080c050abc873e14d90913c8cb5aad652347ecbf9955b", size = 76014, upload-time = "2026-05-09T05:41:35.61Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "croniter", specifier = ">=6.2.2" },
+    { name = "pydantic" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright", specifier = ">=1.32.1" },
+    { name = "codespell", specifier = ">=2.4.1" },
+    { name = "coverage", specifier = ">=7.6.7" },
+    { name = "funlog", specifier = ">=0.2.1" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", specifier = ">=1.2.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "pytest-sugar", specifier = ">=1.0.0" },
+    { name = "rich", specifier = ">=14.0.0" },
+    { name = "ruff", specifier = ">=0.14.2" },
+]
+docs = [
+    { name = "markdown-pycon", specifier = ">=1.0.1" },
+    { name = "mkdocs", specifier = ">=1.6" },
+    { name = "mkdocs-material", specifier = ">=9.5" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27" },
 ]
 
 [[package]]
@@ -2576,7 +2598,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography" },
-    { name = "lythonic" },
+    { name = "lythonic", editable = "../lythonic" },
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "tornado" },
