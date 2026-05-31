@@ -146,7 +146,6 @@ def build_system_namespace(
             raise ValueError(f"Method '{nsref}' not found in namespace '{namespace}'") from None
 
         method = node.method
-        iface = method.interface
         args_info: list[ArgInfo] = [
             ArgInfo(
                 name=p.name,
@@ -155,9 +154,9 @@ def build_system_namespace(
                 description=p.description or None,
                 default=str(p.default) if p.default is not None else None,
             )
-            for p in iface.params
+            for p in method.args
         ]
-        return_type = iface.return_type
+        return_type: str | None = method.interface.return_type  # pyright: ignore[reportAttributeAccessIssue]
 
         cache_config: dict[str, Any] | None = None
         if _node_has_cache(node):
