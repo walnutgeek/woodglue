@@ -8,11 +8,9 @@ Always mounted as the `system` prefix with `expose_api=True`.
 
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
-from lythonic.compose import Method
 from lythonic.compose.dag_provenance import DagRun
 from lythonic.compose.dag_runner import DagRunResult
 from lythonic.compose.namespace import Namespace, NamespaceNode
@@ -64,15 +62,6 @@ class NamespaceInfo(BaseModel):
     has_cache: bool
 
 
-def _type_display(annotation: Any) -> str:
-    """Human-readable name for a type annotation."""
-    if annotation is None or annotation is inspect.Parameter.empty:
-        return "str"
-    if hasattr(annotation, "__name__"):
-        return annotation.__name__
-    return str(annotation)
-
-
 def _docstring_teaser(doc: str | None) -> str:
     if not doc:
         return ""
@@ -95,13 +84,6 @@ def _get_engine(registry: EngineRegistry | None, namespace: str) -> NamespaceEng
     except KeyError:
         available = ", ".join(registry.list_prefixes()) or "(none)"
         raise ValueError(f"No engine for namespace '{namespace}'. Available: {available}") from None
-
-
-def _register_closure(ns: Namespace, fn: Callable[..., Any], nsref: str, tags: list[str]) -> None:
-    """Register a closure/inner function that can't be resolved by GlobalRef."""
-    method = Method(fn)
-    node = NamespaceNode(method=method, nsref=nsref, namespace=ns, tags=tags)
-    ns._nodes[nsref] = node  # pyright: ignore[reportPrivateUsage]
 
 
 def build_system_namespace(
@@ -164,25 +146,18 @@ def build_system_namespace(
             raise ValueError(f"Method '{nsref}' not found in namespace '{namespace}'") from None
 
         method = node.method
-        args_info: list[ArgInfo] = []
-        for arg in method.args:
-            default_str: str | None = None
-            if arg.default is not None and arg.default is not inspect.Parameter.empty:
-                default_str = str(arg.default)
-            args_info.append(
-                ArgInfo(
-                    name=arg.name,
-                    type=_type_display(arg.annotation),
-                    required=not arg.is_optional,
-                    description=arg.description or None,
-                    default=default_str,
-                )
+        iface = method.interface
+        args_info: list[ArgInfo] = [
+            ArgInfo(
+                name=p.name,
+                type=p.type_str,
+                required=not p.is_optional,
+                description=p.description or None,
+                default=str(p.default) if p.default is not None else None,
             )
-
-        ret = method.return_annotation
-        return_type: str | None = None
-        if ret is not None and ret is not inspect.Parameter.empty:
-            return_type = _type_display(ret)
+            for p in iface.params
+        ]
+        return_type = iface.return_type
 
         cache_config: dict[str, Any] | None = None
         if _node_has_cache(node):
@@ -285,6 +260,6 @@ def build_system_namespace(
         (activate_trigger, "activate_trigger"),
         (deactivate_trigger, "deactivate_trigger"),
     ]:
-        _register_closure(ns, fn, fn_nsref, tags)
+        ns.register(fn, nsref=fn_nsref, tags=tags)
 
     return ns
