@@ -1,7 +1,7 @@
 # Woodglue
 
 ![CI](https://github.com/walnutgeek/woodglue/actions/workflows/ci.yml/badge.svg)
-![Docs](https://github.com/walnutgeek/woodglue/actions/workflows/docs.yml/badge.svg)
+[![Docs](https://github.com/walnutgeek/woodglue/actions/workflows/docs.yml/badge.svg)](https://walnutgeek.github.io/woodglue/)
 [![PyPI](https://img.shields.io/pypi/v/woodglue)](https://pypi.org/project/woodglue/)
 [![Python](https://img.shields.io/pypi/pyversions/woodglue)](https://pypi.org/project/woodglue/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
