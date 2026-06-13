@@ -97,37 +97,45 @@ class ApiClient(NamespaceFragment):
 def test_load_config_with_inline_namespace_and_fragment():
     """Load a config with an inline fragment entry via YAML."""
     with tempfile.TemporaryDirectory() as tmp:
-        config_path = Path(tmp) / "woodglue.yaml"
-        config_path.write_text(
-            "namespaces:\n"
-            "  svc:\n"
-            "    entries:\n"
-            "      - type: fragment\n"
-            "        nsref: 'client:'\n"
-            "        gref: 'tests.test_config:ApiClient'\n"
-            "        init:\n"
-            "          rpm: 10.0\n"
-            "        configs:\n"
-            "          fetch:\n"
-            "            min_ttl: 60\n"
-            "            max_ttl: 300\n"
-            "          fetch2:\n"
-            "            min_ttl: 60\n"
-            "            max_ttl: 300\n"
-        )
-        cfg = load_config(Path(tmp))
-        namespaces = load_namespaces(cfg.namespaces, Path(tmp))
-        assert "svc" in namespaces
-        ns, _loaded = namespaces["svc"]
-        # Fragment expands decorated methods under the "client:" prefix
-        fetch_node = ns.get("client:fetch")
-        assert fetch_node is not None
-        assert "api" in fetch_node.tags
-        fetch_too_node = ns.get("client:fetch_too")
-        assert fetch_too_node is not None
-        assert "api" in fetch_too_node.tags
-        assert type(fetch_node) is NamespaceNode
-        assert type(fetch_too_node) is NamespaceNode
+        for i in (1, 2):
+            config_path = Path(tmp) / "woodglue.yaml"
+            config_path.write_text(
+                "namespaces:\n"
+                "  svc:\n"
+                "    entries:\n"
+                "      - type: fragment\n"
+                "        nsref: 'client:'\n"
+                "        gref: 'tests.test_config:ApiClient'\n"
+                "        init:\n"
+                "          rpm: 10.0\n"
+                + (
+                    "        configs:\n"
+                    "          fetch:\n"
+                    "            min_ttl: 60\n"
+                    "            max_ttl: 300\n"
+                    "          fetch2:\n"
+                    "            min_ttl: 60\n"
+                    "            max_ttl: 300\n"
+                    if i == 1
+                    else "        defaults:\n"
+                    "          cache:\n"
+                    "            min_ttl: 60\n"
+                    "            max_ttl: 300\n"
+                )
+            )
+            cfg = load_config(Path(tmp))
+            namespaces = load_namespaces(cfg.namespaces, Path(tmp))
+            assert "svc" in namespaces
+            ns, _loaded = namespaces["svc"]
+            # Fragment expands decorated methods under the "client:" prefix
+            fetch_node = ns.get("client:fetch")
+            assert fetch_node is not None
+            assert "api" in fetch_node.tags
+            fetch_too_node = ns.get("client:fetch_too")
+            assert fetch_too_node is not None
+            assert "api" in fetch_too_node.tags
+            assert type(fetch_node) is NamespaceNode
+            assert type(fetch_too_node) is NamespaceNode
 
 
 def test_load_config_with_storage():
