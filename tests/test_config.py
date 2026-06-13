@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
+from lythonic.compose.namespace import NamespaceFragment, NamespaceNode, nsnode, require_cache
 
 from woodglue.cli import load_namespaces
 from woodglue.config import DocsConfig, NamespaceEntry, UiConfig, load_config
@@ -73,6 +75,61 @@ def test_load_config_with_inline_namespace():
         assert len(cfg.namespaces["api"].entries) == 1
 
 
+class ApiClient(NamespaceFragment):
+    def __init__(self, rpm: float | None = None) -> None:
+        pass
+
+    @require_cache
+    @nsnode(tags=["api"])
+    def fetch(self, key: str) -> float:  # pyright: ignore[reportUnusedParameter]
+        return 5
+
+    @require_cache
+    @nsnode(tags=["api"])
+    def fetch2(self, key: str) -> float:  # pyright: ignore[reportUnusedParameter]
+        return 5
+
+    @nsnode(tags=["api"])
+    def fetch_too(self, key: str) -> float:  # pyright: ignore[reportUnusedParameter]
+        return 6
+
+
+def test_load_config_with_inline_namespace_and_fragment():
+    """Load a config with an inline fragment entry via YAML."""
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = Path(tmp) / "woodglue.yaml"
+        config_path.write_text(
+            "namespaces:\n"
+            "  svc:\n"
+            "    entries:\n"
+            "      - type: fragment\n"
+            "        nsref: 'client:'\n"
+            "        gref: 'tests.test_config:ApiClient'\n"
+            "        init:\n"
+            "          rpm: 10.0\n"
+            "        configs:\n"
+            "          fetch:\n"
+            "            min_ttl: 60\n"
+            "            max_ttl: 300\n"
+            "          fetch2:\n"
+            "            min_ttl: 60\n"
+            "            max_ttl: 300\n"
+        )
+        cfg = load_config(Path(tmp))
+        namespaces = load_namespaces(cfg.namespaces, Path(tmp))
+        assert "svc" in namespaces
+        ns, _loaded = namespaces["svc"]
+        # Fragment expands decorated methods under the "client:" prefix
+        fetch_node = ns.get("client:fetch")
+        assert fetch_node is not None
+        assert "api" in fetch_node.tags
+        fetch_too_node = ns.get("client:fetch_too")
+        assert fetch_too_node is not None
+        assert "api" in fetch_too_node.tags
+        assert type(fetch_node) is NamespaceNode
+        assert type(fetch_too_node) is NamespaceNode
+
+
 def test_load_config_with_storage():
     """Load a config with storage settings."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -127,16 +184,9 @@ def test_load_namespaces_from_gref():
 
 def test_load_namespaces_inline():
     """Load a namespace from inline entries list."""
-    from lythonic import GlobalRef
-    from lythonic.compose.namespace import NsNodeConfig
-
-    entries = [
-        NsNodeConfig(nsref="hello", gref=GlobalRef("woodglue.hello:hello"), tags=["api"]),
-        NsNodeConfig(
-            nsref="pydantic_hello",
-            gref=GlobalRef("woodglue.hello:pydantic_hello"),
-            tags=["api"],
-        ),
+    entries: list[dict[str, Any]] = [
+        {"nsref": "hello", "gref": "woodglue.hello:hello", "tags": ["api"]},
+        {"nsref": "pydantic_hello", "gref": "woodglue.hello:pydantic_hello", "tags": ["api"]},
     ]
     ns_entry = NamespaceEntry(entries=entries)
     namespaces = load_namespaces({"inline": ns_entry}, Path("."))

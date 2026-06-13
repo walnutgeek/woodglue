@@ -9,9 +9,9 @@ settings.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from lythonic.compose.engine import StorageConfig
-from lythonic.compose.namespace import NsNodeConfig
 from pydantic import BaseModel, model_validator
 from pydantic_yaml import parse_yaml_file_as
 
@@ -45,7 +45,7 @@ class NamespaceEntry(BaseModel):
 
     gref: str | None = None
     file: str | None = None
-    entries: list[NsNodeConfig] | None = None
+    entries: list[dict[str, Any]] | None = None
     expose_api: bool = True
     run_engine: bool = False
 

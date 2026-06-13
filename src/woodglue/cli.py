@@ -75,8 +75,7 @@ def load_namespaces(
             ns = Namespace.from_dict(raw.get("namespace", []))
             result[prefix] = (ns, ns_entry)
         elif ns_entry.entries is not None:
-            entries = [e.model_dump(exclude_none=True) for e in ns_entry.entries]
-            ns = Namespace.from_dict(entries)
+            ns = Namespace.from_dict(ns_entry.entries)
             result[prefix] = (ns, ns_entry)
     return result
 
