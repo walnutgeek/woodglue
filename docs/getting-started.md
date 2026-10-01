@@ -59,20 +59,34 @@ namespace:
 wgl start
 ```
 
+## Get the Auth Token
+
+Bearer token auth is enabled by default (`auth.enabled` in `woodglue.yaml`).
+The token is created on first start, or by `wgl token`, and stored in
+`data/auth.db`. `wgl start` never prints it. To see or rotate it:
+
+```bash
+wgl token          # print the current token
+wgl token --new    # replace it; the running server picks it up immediately
+```
+
 ## Call via JSON-RPC
 
 ```bash
 curl -X POST http://127.0.0.1:5321/rpc \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(wgl token)" \
   -d '{"jsonrpc":"2.0","method":"myapp.greet","params":{"input":{"name":"World"}},"id":1}'
 ```
 
 ## Use the Async Client
 
 ```python
+from pathlib import Path
+
 from woodglue.client import WoodglueClient
 
-client = WoodglueClient("http://127.0.0.1:5321")
+client = WoodglueClient("http://127.0.0.1:5321", data_dir=Path("data"))
 await client.load_spec(strict=True)
 result = await client.call("myapp.greet", input={"name": "World"})
 # result is GreetOut(message="Hello, World!")

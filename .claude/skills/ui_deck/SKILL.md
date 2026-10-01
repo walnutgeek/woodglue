@@ -78,7 +78,7 @@ done
 If auth is enabled, extract the token programmatically:
 
 ```bash
-uv run python -c "from woodglue.token_store import get_single_token; print(get_single_token('data/auth.db'))"
+uv run wgl --data=data token
 ```
 
 If the server fails to start, report the error and stop.

@@ -65,6 +65,9 @@ Start the server:
 wgl start
 ```
 
+Auth is enabled by default. `wgl start` creates a bearer token on first run but
+never prints it; use `wgl token` to see it and `wgl token --new` to rotate it.
+
 Endpoints:
 
 - `POST /rpc` -- JSON-RPC 2.0

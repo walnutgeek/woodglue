@@ -74,6 +74,8 @@ Run the server:
 wgl start
 ```
 
+Get the bearer token with `wgl token` (rotate it with `wgl token --new`).
+
 ## Endpoints
 
 - `POST /rpc` — JSON-RPC 2.0 endpoint

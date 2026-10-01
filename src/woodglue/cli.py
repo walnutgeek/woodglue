@@ -6,6 +6,12 @@ Commands:
     wgl stop           Stop a running instance
     wgl run <nsref>    Run a callable or DAG once
     wgl status         Show server status
+    wgl token          Print the auth token(s), creating one if none exist
+    wgl token --new    Replace all auth tokens with a single new one
+
+`wgl start` never prints the token, since its output may be captured in logs
+(e.g. the systemd journal). Use `wgl token` to read it. Rotation with `--new`
+takes effect immediately: the server checks `auth.db` on every request.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from lythonic.compose.cli import ActionTree, Main, RunContext
 from lythonic.compose.namespace import Namespace
 from pydantic import Field
 
-from woodglue.config import NamespaceEntry, WoodglueConfig, load_config
+from woodglue.config import CONFIG_FILENAME, NamespaceEntry, WoodglueConfig, load_config
 from woodglue.mount import MountContext
 
 
@@ -141,17 +147,13 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     host = root.host if root.host != "127.0.0.1" else config.host
     port = root.port if root.port != 5321 else config.port
 
-    # Auth token setup
+    # Auth token setup. Never print the token: under systemd stdout goes to the journal.
     if config.auth.enabled:
-        from woodglue.token_store import ensure_token, get_single_token
+        from woodglue.token_store import ensure_token
 
         assert config.storage.auth_db is not None
         ensure_token(config.storage.auth_db)
-        single = get_single_token(config.storage.auth_db)
-        if single:
-            print(f"  Auth token: {single}")
-        else:
-            print("  Auth enabled (multiple tokens configured)")
+        print("  Auth enabled; run 'wgl token' to see the token")
 
     namespaces = load_namespaces(config.namespaces, data_dir)
 
@@ -299,6 +301,28 @@ def status(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
         print(f"Server running (pid={pid})")
     else:
         print("Server not running")
+
+
+@main_at.actions.wrap
+def token(ctx: RunContext, new: bool = False) -> None:
+    """Print the auth token(s); --new replaces all tokens with a new one"""
+    from woodglue.token_store import ensure_token, list_tokens, rotate_token
+
+    root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
+    data_dir = root.data.resolve()
+    config = load_config(data_dir)
+    if not config.auth.enabled:
+        sys.exit(f"Auth is disabled in {data_dir / CONFIG_FILENAME}; no token to show")
+    _resolve_storage(config, data_dir)
+    assert config.storage.auth_db is not None
+
+    if new:
+        # The server validates against auth.db on every request, so no restart is needed.
+        print(rotate_token(config.storage.auth_db))
+        return
+    ensure_token(config.storage.auth_db)
+    for t in list_tokens(config.storage.auth_db):
+        print(t)
 
 
 def main() -> None:
