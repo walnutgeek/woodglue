@@ -317,7 +317,6 @@ def token(ctx: RunContext, new: bool = False) -> None:
     assert config.storage.auth_db is not None
 
     if new:
-        # The server validates against auth.db on every request, so no restart is needed.
         print(rotate_token(config.storage.auth_db))
         return
     ensure_token(config.storage.auth_db)

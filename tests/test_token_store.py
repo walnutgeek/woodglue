@@ -66,16 +66,21 @@ def test_validate_token():
         assert validate_token(db_path, "bad-token") is False
 
 
+def _add_later_token(db_path: Path, token: str) -> None:
+    """Insert `token` with a `created_at` after any token created now."""
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO tokens (token, created_at) VALUES (?, ?)",
+            (token, "9999-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
+
+
 def test_list_tokens_returns_all_in_creation_order(tmp_path: Path):
     db_path = tmp_path / "auth.db"
     assert list_tokens(db_path) == []
     first = ensure_token(db_path)
-    with closing(sqlite3.connect(db_path)) as conn:
-        conn.execute(
-            "INSERT INTO tokens (token, created_at) VALUES (?, ?)",
-            ("second-token", "9999-01-01T00:00:00+00:00"),
-        )
-        conn.commit()
+    _add_later_token(db_path, "second-token")
     assert list_tokens(db_path) == [first, "second-token"]
 
 
@@ -83,12 +88,7 @@ def test_rotate_token_replaces_all_tokens(tmp_path: Path):
     db_path = tmp_path / "auth.db"
     old = ensure_token(db_path)
     assert old is not None
-    with closing(sqlite3.connect(db_path)) as conn:
-        conn.execute(
-            "INSERT INTO tokens (token, created_at) VALUES (?, datetime('now'))",
-            ("second-token",),
-        )
-        conn.commit()
+    _add_later_token(db_path, "second-token")
     new = rotate_token(db_path)
     assert list_tokens(db_path) == [new]
     assert validate_token(db_path, new) is True
