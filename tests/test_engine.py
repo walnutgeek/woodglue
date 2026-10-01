@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from lythonic.compose.namespace import Namespace
 
 from woodglue.engine import EngineRegistry, NamespaceEngine
+from woodglue.mount import MountContext
 
 
 def _make_engine(prefix: str) -> NamespaceEngine:
@@ -17,6 +18,7 @@ def _make_engine(prefix: str) -> NamespaceEngine:
         namespace=Namespace(),
         trigger_store=MagicMock(),
         trigger_manager=MagicMock(),
+        mount=MountContext(prefix, Path(".")),
     )
 
 
@@ -54,11 +56,9 @@ def test_create_engine_wires_paths() -> None:
     from lythonic.compose.engine import StorageConfig as LythStorageConfig
 
     from woodglue.engine import create_engine
-    from woodglue.mount import MountContext
 
     with tempfile.TemporaryDirectory() as tmp:
-        mounts_dir = Path(tmp) / "mounts"
-        mount = MountContext("test_ns", mounts_dir)
+        mount = MountContext("test_ns", Path(tmp))
         ns = Namespace()
 
         storage = LythStorageConfig()
@@ -66,7 +66,7 @@ def test_create_engine_wires_paths() -> None:
         storage.log_file = None  # no file logging in tests (Windows cleanup)
         ns.mount(storage)
 
-        engine = create_engine("test_ns", ns)
+        engine = create_engine(mount, ns)
         assert engine.prefix == "test_ns"
         assert engine.namespace is ns
         # The state dir should have been created (mount + TriggerStore init)

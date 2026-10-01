@@ -24,14 +24,13 @@ from woodglue.mount import MountContext
 def _make_registry_with_ns(tmp_path: Path) -> EngineRegistry:
     from lythonic.compose.engine import StorageConfig as LythStorageConfig
 
-    mounts_dir = tmp_path / "mounts"
     ns = Namespace()
-    mount = MountContext("demo", mounts_dir)
+    mount = MountContext("demo", tmp_path)
     storage = LythStorageConfig()
     storage.resolve_paths(mount.state_dir)
     storage.log_file = None  # no file logging in tests (Windows cleanup)
     ns.mount(storage)
-    engine = create_engine("demo", ns)
+    engine = create_engine(mount, ns)
     reg = EngineRegistry()
     reg.register(engine)
     return reg

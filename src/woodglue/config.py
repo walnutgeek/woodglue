@@ -41,6 +41,12 @@ class NamespaceEntry(BaseModel):
     """
     Per-namespace configuration. Exactly one of `gref`, `file`, or `entries`
     must be set to specify how the namespace is instantiated.
+
+    However it is defined, the namespace is built and called with its
+    `woodglue.mount.MountContext` set as `current_mount`. A fragment needing the
+    instance data dir reads `current_mount.get(None).data_dir` rather than
+    taking an absolute path in its `init` config, so a copied `woodglue.yaml`
+    still points at its own instance.
     """
 
     gref: str | None = None

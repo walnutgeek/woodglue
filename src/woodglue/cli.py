@@ -20,6 +20,7 @@ from lythonic.compose.namespace import Namespace
 from pydantic import Field
 
 from woodglue.config import NamespaceEntry, WoodglueConfig, load_config
+from woodglue.mount import MountContext
 
 
 class WoodglueMain(Main):
@@ -59,25 +60,29 @@ def load_namespaces(
     Each `NamespaceEntry` specifies exactly one of `gref`, `file`, or
     `entries`. Returns `(Namespace, NamespaceEntry)` tuples so callers
     can inspect per-namespace flags like `expose_api` and `run_engine`.
-    """
-    import yaml
 
+    Each namespace is built with its `MountContext` active, so fragment
+    constructors can read `current_mount`.
+    """
     result: dict[str, tuple[Namespace, NamespaceEntry]] = {}
     for prefix, ns_entry in ns_map.items():
-        if ns_entry.gref is not None:
-            gref = GlobalRef(ns_entry.gref)
-            ns = gref.get_instance()
-            assert isinstance(ns, Namespace), f"{ns_entry.gref} is not a Namespace"
-            result[prefix] = (ns, ns_entry)
-        elif ns_entry.file is not None:
-            config_path = data_dir / ns_entry.file
-            raw = yaml.safe_load(config_path.read_text())
-            ns = Namespace.from_dict(raw.get("namespace", []))
-            result[prefix] = (ns, ns_entry)
-        elif ns_entry.entries is not None:
-            ns = Namespace.from_dict(ns_entry.entries)
-            result[prefix] = (ns, ns_entry)
+        with MountContext(prefix, data_dir).activate():
+            result[prefix] = (_build_namespace(ns_entry, data_dir), ns_entry)
     return result
+
+
+def _build_namespace(ns_entry: NamespaceEntry, data_dir: Path) -> Namespace:
+    import yaml
+
+    if ns_entry.gref is not None:
+        ns = GlobalRef(ns_entry.gref).get_instance()
+        assert isinstance(ns, Namespace), f"{ns_entry.gref} is not a Namespace"
+        return ns
+    if ns_entry.file is not None:
+        raw = yaml.safe_load((data_dir / ns_entry.file).read_text())
+        return Namespace.from_dict(raw.get("namespace", []))
+    assert ns_entry.entries is not None
+    return Namespace.from_dict(ns_entry.entries)
 
 
 @main_at.actions.wrap
@@ -88,8 +93,8 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     from woodglue.apps.server import create_app
 
     root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
-    data_dir = root.data
-    data_dir.mkdir(parents=True, exist_ok=True)
+    root.data.mkdir(parents=True, exist_ok=True)
+    data_dir = root.data.resolve()
 
     config = load_config(data_dir)
     _resolve_storage(config, data_dir)
@@ -123,11 +128,8 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     namespaces = load_namespaces(config.namespaces, data_dir)
 
     # Build MountContext for every namespace
-    from woodglue.mount import MountContext
-
-    mounts_dir = data_dir / "mounts"
     mounts: dict[str, MountContext] = {
-        prefix: MountContext(prefix, mounts_dir) for prefix in namespaces
+        prefix: MountContext(prefix, data_dir) for prefix in namespaces
     }
 
     # Mount and build engines for namespaces with run_engine=True
@@ -143,8 +145,9 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
             storage.resolve_paths(mount.state_dir)
             storage.log_file = None  # global logging already configured
             ns.mount(storage)
-            engine = create_engine(prefix, ns)
-            activated = activate_triggers(engine)
+            engine = create_engine(mount, ns)
+            with mount.activate():
+                activated = activate_triggers(engine)
             registry.register(engine)
             if activated:
                 print(f"  Triggers activated for '{prefix}': {', '.join(activated)}")
@@ -155,7 +158,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     system_ns = build_system_namespace(namespaces, registry if registry.has_engines() else None)
     system_entry = NamespaceEntry(gref="builtin:system", expose_api=True)
     namespaces["system"] = (system_ns, system_entry)
-    mounts["system"] = MountContext("system", mounts_dir)
+    mounts["system"] = MountContext("system", data_dir)
 
     app = create_app(namespaces=namespaces, config=config, engine_registry=registry, mounts=mounts)
     app.listen(port, host)
@@ -218,15 +221,17 @@ def run(ctx: RunContext, nsref: str) -> None:  # pyright: ignore[reportUnusedPar
     import json
 
     root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
-    config = load_config(root.data)
-    data_dir = root.data
+    data_dir = root.data.resolve()
+    config = load_config(data_dir)
     _resolve_storage(config, data_dir)
     namespaces = load_namespaces(config.namespaces, data_dir)
 
     node = None
-    for ns, _entry in namespaces.values():
+    node_prefix = ""
+    for prefix, (ns, _entry) in namespaces.items():
         try:
             node = ns.get(nsref)
+            node_prefix = prefix
             break
         except KeyError:
             continue
@@ -241,7 +246,9 @@ def run(ctx: RunContext, nsref: str) -> None:  # pyright: ignore[reportUnusedPar
             result = await result
         print(json.dumps(result, indent=2, default=str))
 
-    asyncio.run(_run())
+    # asyncio.run copies the current context, so the node sees the mount
+    with MountContext(node_prefix, data_dir).activate():
+        asyncio.run(_run())
 
 
 @main_at.actions.wrap
