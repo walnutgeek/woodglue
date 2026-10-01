@@ -71,3 +71,27 @@ def test_create_engine_wires_paths() -> None:
         assert engine.namespace is ns
         # The state dir should have been created (mount + TriggerStore init)
         assert mount.state_dir.exists()
+
+
+async def test_stop_all_waits_for_poll_tasks() -> None:
+    from lythonic.compose.engine import StorageConfig as LythStorageConfig
+
+    from woodglue.engine import create_engine
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mount = MountContext("test_ns", Path(tmp))
+        ns = Namespace()
+        storage = LythStorageConfig()
+        storage.resolve_paths(mount.state_dir)
+        storage.log_file = None  # no file logging in tests (Windows cleanup)
+        ns.mount(storage)
+
+        registry = EngineRegistry()
+        engine = create_engine(mount, ns)
+        registry.register(engine)
+        await registry.start_all()
+        task = engine.trigger_manager._task  # pyright: ignore[reportPrivateUsage]
+        assert task is not None and not task.done()
+
+        await registry.stop_all()
+        assert task.done()
