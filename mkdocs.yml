@@ -56,6 +56,9 @@ markdown_extensions:
   - toc:
       permalink: true
 
+exclude_docs: |
+  agents/
+
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
