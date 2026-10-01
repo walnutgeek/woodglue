@@ -231,19 +231,22 @@ def build_system_namespace(
     ) -> DagRunResult:
         """Fire a trigger by name."""
         engine = _get_engine(registry, namespace)
-        return await engine.trigger_manager.fire(name, payload)
+        with engine.mount.activate():
+            return await engine.trigger_manager.fire(name, payload)
 
     def activate_trigger(namespace: str, name: str) -> dict[str, Any]:
         """Activate a trigger by name."""
         engine = _get_engine(registry, namespace)
-        engine.trigger_manager.activate(name)
+        with engine.mount.activate():
+            engine.trigger_manager.activate(name)
         activation = engine.trigger_store.get_activation(name)
         return activation or {"name": name, "status": "activated"}
 
     def deactivate_trigger(namespace: str, name: str) -> dict[str, Any]:
         """Deactivate a trigger by name."""
         engine = _get_engine(registry, namespace)
-        engine.trigger_manager.deactivate(name)
+        with engine.mount.activate():
+            engine.trigger_manager.deactivate(name)
         return {"name": name, "status": "deactivated"}
 
     for fn, fn_nsref in [

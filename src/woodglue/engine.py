@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from lythonic.compose.namespace import Namespace
 from lythonic.compose.trigger import TriggerManager, TriggerStore
 
+from woodglue.mount import MountContext
+
 
 @dataclass
 class NamespaceEngine:
@@ -16,6 +18,7 @@ class NamespaceEngine:
     namespace: Namespace
     trigger_store: TriggerStore
     trigger_manager: TriggerManager
+    mount: MountContext
 
 
 class EngineRegistry:
@@ -41,9 +44,13 @@ class EngineRegistry:
         return bool(self._engines)
 
     async def start_all(self) -> None:
-        """Start all TriggerManagers."""
+        """
+        Start all TriggerManagers. Each poll loop runs with its namespace's
+        mount as `current_mount`.
+        """
         for engine in self._engines.values():
-            engine.trigger_manager.start()
+            with engine.mount.activate():
+                engine.trigger_manager.start()
 
     async def stop_all(self) -> None:
         """Stop all TriggerManagers."""
@@ -51,7 +58,7 @@ class EngineRegistry:
             engine.trigger_manager.stop()
 
 
-def create_engine(prefix: str, namespace: Namespace) -> NamespaceEngine:
+def create_engine(mount: MountContext, namespace: Namespace) -> NamespaceEngine:
     """Create engine instances for a namespace. Namespace must be mounted first."""
     storage = namespace._storage  # pyright: ignore[reportPrivateUsage]  # set by mount()
     assert storage.triggers_db is not None, "namespace must be mounted with triggers_db"
@@ -61,10 +68,11 @@ def create_engine(prefix: str, namespace: Namespace) -> NamespaceEngine:
         namespace=namespace, store=trigger_store, provenance=provenance
     )
     return NamespaceEngine(
-        prefix=prefix,
+        prefix=mount.prefix,
         namespace=namespace,
         trigger_store=trigger_store,
         trigger_manager=trigger_manager,
+        mount=mount,
     )
 
 
