@@ -17,6 +17,7 @@ from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
+from woodglue.apps.rpc import INVALID_PARAMS, RpcError
 from woodglue.config import NamespaceEntry
 from woodglue.engine import EngineRegistry, NamespaceEngine
 
@@ -78,12 +79,16 @@ def _node_has_triggers(node: NamespaceNode) -> bool:
 
 def _get_engine(registry: EngineRegistry | None, namespace: str) -> NamespaceEngine:
     if registry is None:
-        raise ValueError("No engines configured")
+        raise RpcError(
+            INVALID_PARAMS, f"No engine for namespace '{namespace}': no engines configured"
+        )
     try:
         return registry.get(namespace)
     except KeyError:
         available = ", ".join(registry.list_prefixes()) or "(none)"
-        raise ValueError(f"No engine for namespace '{namespace}'. Available: {available}") from None
+        raise RpcError(
+            INVALID_PARAMS, f"No engine for namespace '{namespace}'. Available: {available}"
+        ) from None
 
 
 def build_system_namespace(
@@ -118,7 +123,7 @@ def build_system_namespace(
     def list_methods(namespace: str) -> list[MethodInfo]:
         """List methods in a namespace with summary metadata."""
         if namespace not in namespaces:
-            raise ValueError(f"Namespace '{namespace}' not found")
+            raise RpcError(INVALID_PARAMS, f"Namespace '{namespace}' not found")
         ns_obj, _entry = namespaces[namespace]
         result: list[MethodInfo] = []
         for nsref, node in walk_namespace(ns_obj):
@@ -138,12 +143,14 @@ def build_system_namespace(
     def describe_method(namespace: str, nsref: str) -> MethodInfo:
         """Full method detail including args, return type, and config."""
         if namespace not in namespaces:
-            raise ValueError(f"Namespace '{namespace}' not found")
+            raise RpcError(INVALID_PARAMS, f"Namespace '{namespace}' not found")
         ns_obj, _entry = namespaces[namespace]
         try:
             node = ns_obj.get(nsref)
         except KeyError:
-            raise ValueError(f"Method '{nsref}' not found in namespace '{namespace}'") from None
+            raise RpcError(
+                INVALID_PARAMS, f"Method '{nsref}' not found in namespace '{namespace}'"
+            ) from None
 
         method = node.method
         iface = method.interface

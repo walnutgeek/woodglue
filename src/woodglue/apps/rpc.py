@@ -3,6 +3,18 @@ JSON-RPC 2.0 handler backed by a lythonic Namespace.
 
 Dispatches JSON-RPC method calls to NamespaceNode callables, validates
 parameters against Method.args, and returns standard JSON-RPC 2.0 responses.
+
+Errors raised by a node:
+
+- `RpcError` (or a subclass) reports an application error to the client:
+  the response error object is `{"code": exc.code, "message": exc.message}`,
+  plus `"data"` when `exc.data` is not `None` (serialized like results).
+  It is logged at WARNING with the method name, code and message, without a
+  traceback, since it is an expected, client-caused failure.
+- Opt-in is by subclassing only. Any other exception, even one with an
+  integer `code` attribute (e.g. `urllib.error.HTTPError`), becomes
+  `-32603 "Internal error"` with no message leaked to the client, and is
+  logged at ERROR with its traceback.
 """
 
 from __future__ import annotations
@@ -10,7 +22,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from typing import Any
+from typing import Any, overload
 
 import tornado.web
 from pydantic import BaseModel, ValidationError
@@ -26,10 +38,67 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
 
-def _error_response(code: int, message: str, request_id: Any = None) -> dict[str, Any]:
+class RpcError(Exception):
+    """
+    Application-level JSON-RPC error that a node may raise to report a
+    client-visible failure. `str(exc)` is the message.
+
+    Subclasses may set `code` as a class attribute and then be constructed
+    from just a message:
+
+    ```
+    class NotFound(RpcError):
+        code = -32001
+
+    raise NotFound("no such ticker", data={"ticker": "XYZ"})
+    raise RpcError(INVALID_PARAMS, "bad date range")
+    ```
+
+    >>> class NotFound(RpcError):
+    ...     code = -32001
+    >>> e = NotFound("missing", data={"k": 1})
+    >>> (e.code, e.message, e.data, str(e))
+    (-32001, 'missing', {'k': 1}, 'missing')
+    >>> RpcError(-32010, "x").code
+    -32010
+    """
+
+    code: int
+    message: str
+    data: Any
+
+    @overload
+    def __init__(self, code: int, message: str, /, data: Any = None) -> None: ...
+    @overload
+    def __init__(self, message: str, /, *, data: Any = None) -> None: ...
+    def __init__(
+        self, code_or_message: int | str, message: str | None = None, /, data: Any = None
+    ) -> None:
+        if isinstance(code_or_message, str):
+            if message is not None:
+                raise TypeError("RpcError(message, ...) takes `data` only as a keyword")
+            class_code = getattr(type(self), "code", None)
+            if not isinstance(class_code, int):
+                raise TypeError(f"{type(self).__name__} has no class-level `code`; pass one")
+            message = code_or_message
+        else:
+            if message is None:
+                raise TypeError("RpcError(code, message) requires a message")
+            self.code = code_or_message
+        self.message = message
+        self.data = data
+        super().__init__(message)
+
+
+def _error_response(
+    code: int, message: str, request_id: Any = None, data: Any = None
+) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if data is not None:
+        error["data"] = _serialize_result(data)
     return {
         "jsonrpc": "2.0",
-        "error": {"code": code, "message": message},
+        "error": error,
         "id": request_id,
     }
 
@@ -203,6 +272,11 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             result = node(**kwargs)
             if inspect.isawaitable(result):
                 result = await result
+        except RpcError as exc:
+            # Expected, client-caused failure: no traceback.
+            logger.warning("RPC error calling %s: %d %s", method, exc.code, exc.message)
+            self.write(_error_response(exc.code, exc.message, request_id, exc.data))
+            return
         except Exception:
             logger.exception("Internal error calling %s", method)
             self.write(_error_response(INTERNAL_ERROR, "Internal error", request_id))

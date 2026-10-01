@@ -7,6 +7,7 @@ import tornado.testing
 from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
+from woodglue.apps.rpc import RpcError
 from woodglue.apps.server import create_app
 from woodglue.client import WoodglueClient, WoodglueRpcError
 from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig, WoodglueStorageConfig
@@ -14,10 +15,15 @@ from woodglue.hello import HelloIn, HelloOut, hello, pydantic_hello
 from woodglue.token_store import ensure_token
 
 
+def reject(reason: str) -> str:
+    raise RpcError(-32010, f"rejected: {reason}", data={"reason": reason})
+
+
 def _make_namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
     ns = Namespace()
     ns.register(hello, nsref="hello", tags=["api"])
     ns.register(pydantic_hello, nsref="pydantic_hello", tags=["api"])
+    ns.register(reject, nsref="reject", tags=["api"])
     return {"test": (ns, NamespaceEntry(gref="test"))}
 
 
@@ -70,6 +76,18 @@ class TestWoodglueClient(tornado.testing.AsyncHTTPTestCase):
             raise AssertionError("Expected WoodglueRpcError")
         except WoodglueRpcError as e:
             assert e.code == -32601
+            assert e.data is None
+
+    @tornado.testing.gen_test
+    async def test_call_rpc_error_exposes_code_message_data(self):
+        client = WoodglueClient(self.get_url(""))
+        try:
+            await client.call("test.reject", reason="too early")
+            raise AssertionError("Expected WoodglueRpcError")
+        except WoodglueRpcError as e:
+            assert e.code == -32010
+            assert e.message == "rejected: too early"
+            assert e.data == {"reason": "too early"}
 
     @tornado.testing.gen_test
     async def test_call_with_resolver(self):

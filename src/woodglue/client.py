@@ -17,11 +17,15 @@ from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 
 
 class WoodglueRpcError(Exception):
-    """Raised when the server returns a JSON-RPC error response."""
+    """
+    Raised when the server returns a JSON-RPC error response. `data` is the
+    error object's optional `data` member, or `None` when absent.
+    """
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, data: Any | None = None):
         self.code: int = code
         self.message: str = message
+        self.data: Any | None = data
         super().__init__(f"JSON-RPC error {code}: {message}")
 
 
@@ -147,7 +151,7 @@ class WoodglueClient:
 
         if "error" in data:
             err = data["error"]
-            raise WoodglueRpcError(err["code"], err["message"])
+            raise WoodglueRpcError(err["code"], err["message"], err.get("data"))
 
         result = data.get("result")
 

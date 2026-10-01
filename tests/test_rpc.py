@@ -1,6 +1,7 @@
 """Tests for woodglue.apps.rpc.JsonRpcHandler."""
 
 import json
+import logging
 from typing import Any
 
 import tornado.testing
@@ -8,6 +9,7 @@ from lythonic.compose.namespace import Namespace
 from pydantic import BaseModel as PydanticBaseModel
 from typing_extensions import override
 
+from woodglue.apps.rpc import RpcError
 from woodglue.apps.server import create_app
 from woodglue.config import NamespaceEntry
 from woodglue.hello import pydantic_hello
@@ -215,3 +217,81 @@ class TestMultiNamespaceRpc(tornado.testing.AsyncHTTPTestCase):
         assert resp.code == 200
         data = json.loads(resp.body)
         assert data["error"]["code"] == -32601
+
+
+class NotFoundError(RpcError):
+    code: int = -32001
+
+
+def raises_subclass(name: str) -> str:
+    raise NotFoundError(f"No such name: {name}")
+
+
+def raises_with_data(with_data: bool) -> str:
+    raise RpcError(-32010, "x", data={"k": 1} if with_data else None)
+
+
+def raises_secret() -> str:
+    raise ValueError("secret")
+
+
+class CodedError(Exception):
+    """Not an `RpcError`, but has an int `code` like `HTTPError` or `SystemExit`."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.code: int = 404
+
+
+def raises_coded() -> str:
+    raise CodedError("leaky internals")
+
+
+def _make_error_namespace() -> Namespace:
+    ns = Namespace()
+    for fn in (raises_subclass, raises_with_data, raises_secret, raises_coded):
+        ns.register(fn, nsref=fn.__name__, tags=["api"])
+    return ns
+
+
+class TestRpcErrors(tornado.testing.AsyncHTTPTestCase):
+    @override
+    def get_app(self):
+        ns = _make_error_namespace()
+        return create_app(namespaces={"err": (ns, NamespaceEntry(gref="err"))})
+
+    def _call(self, method: str, params: Any) -> dict[str, Any]:
+        resp = self.fetch("/rpc", method="POST", body=_rpc_body(method, params))
+        assert resp.code == 200
+        return json.loads(resp.body)
+
+    def test_rpc_error_subclass_with_class_code(self):
+        with self.assertLogs("woodglue.apps.rpc", level="WARNING") as logs:
+            data = self._call("err.raises_subclass", {"name": "bob"})
+        assert data["error"] == {"code": -32001, "message": "No such name: bob"}
+        assert data["id"] == 1
+        assert all(r.exc_info is None for r in logs.records)
+        assert all(r.levelno == logging.WARNING for r in logs.records)
+        assert "err.raises_subclass" in logs.output[0]
+        assert "-32001" in logs.output[0]
+
+    def test_rpc_error_data_included_when_set(self):
+        data = self._call("err.raises_with_data", {"with_data": True})
+        assert data["error"] == {"code": -32010, "message": "x", "data": {"k": 1}}
+
+    def test_rpc_error_data_absent_when_none(self):
+        data = self._call("err.raises_with_data", {"with_data": False})
+        assert data["error"] == {"code": -32010, "message": "x"}
+
+    def test_other_exception_is_opaque_internal_error(self):
+        with self.assertLogs("woodglue.apps.rpc", level="ERROR") as logs:
+            resp = self.fetch("/rpc", method="POST", body=_rpc_body("err.raises_secret", {}))
+        assert b"secret" not in resp.body
+        assert json.loads(resp.body)["error"] == {"code": -32603, "message": "Internal error"}
+        assert logs.records[0].exc_info is not None
+
+    def test_exception_with_int_code_attr_is_internal_error(self):
+        with self.assertLogs("woodglue.apps.rpc", level="ERROR"):
+            resp = self.fetch("/rpc", method="POST", body=_rpc_body("err.raises_coded", {}))
+        assert b"leaky" not in resp.body
+        assert json.loads(resp.body)["error"] == {"code": -32603, "message": "Internal error"}

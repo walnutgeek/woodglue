@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
+import tornado.testing
+import tornado.web
 from lythonic.compose import Method
 from lythonic.compose.namespace import Namespace, NamespaceNode
+from typing_extensions import override
 
+from woodglue.apps.rpc import INVALID_PARAMS, RpcError
+from woodglue.apps.server import create_app
 from woodglue.apps.system_api import (
     ArgInfo,
     MethodInfo,
@@ -171,7 +178,7 @@ def test_list_methods_unknown_namespace() -> None:
     system_ns = build_system_namespace(namespaces, None)
     node = system_ns.get("list_methods")
 
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(RpcError, match="not found"):
         node(namespace="nonexistent")
 
 
@@ -211,7 +218,7 @@ def test_describe_method_unknown() -> None:
     system_ns = build_system_namespace(namespaces, None)
     node = system_ns.get("describe_method")
 
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(RpcError, match="not found"):
         node(namespace="myns", nsref="nonexistent")
 
 
@@ -225,12 +232,12 @@ def test_engine_methods_raise_without_registry() -> None:
     # Methods that only need namespace
     for method_name in ["recent_runs", "active_runs", "list_triggers"]:
         node = system_ns.get(method_name)
-        with pytest.raises(ValueError, match="No engines configured"):
+        with pytest.raises(RpcError, match="anything.*no engines configured"):
             node(namespace="anything")
 
     # inspect_run needs run_id too
     node = system_ns.get("inspect_run")
-    with pytest.raises(ValueError, match="No engines configured"):
+    with pytest.raises(RpcError, match="anything.*no engines configured"):
         node(namespace="anything", run_id="fake")
 
 
@@ -263,3 +270,43 @@ def test_recent_runs_with_registry() -> None:
         node = system_ns.get("recent_runs")
         result = node(namespace="demo")
         assert isinstance(result, list)
+
+
+# -- Caller mistakes over JSON-RPC --
+
+
+class TestSystemApiRpcErrors(tornado.testing.AsyncHTTPTestCase):
+    @override
+    def get_app(self) -> tornado.web.Application:
+        tmp = tempfile.TemporaryDirectory()
+        # Cleanups run after tearDown, i.e. after the server has stopped.
+        self.addCleanup(tmp.cleanup)
+        reg = _make_registry_with_ns(Path(tmp.name))
+        api_ns = _make_api_namespace()
+        namespaces: dict[str, tuple[Namespace, NamespaceEntry]] = {
+            "myns": (api_ns, NamespaceEntry(gref="test:api", expose_api=True)),
+        }
+        system_ns = build_system_namespace(namespaces, reg)
+        namespaces["system"] = (system_ns, NamespaceEntry(gref="builtin:system", expose_api=True))
+        return create_app(namespaces=namespaces, engine_registry=reg)
+
+    def _error(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        body = json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": 1})
+        resp = self.fetch("/rpc", method="POST", body=body)
+        return json.loads(resp.body)["error"]
+
+    def test_engine_call_unknown_namespace(self) -> None:
+        err = self._error("system.list_triggers", {"namespace": "bogus"})
+        assert err["code"] == INVALID_PARAMS
+        assert "bogus" in err["message"]
+        assert "demo" in err["message"]
+
+    def test_list_methods_unknown_namespace(self) -> None:
+        err = self._error("system.list_methods", {"namespace": "bogus"})
+        assert err["code"] == INVALID_PARAMS
+        assert "bogus" in err["message"]
+
+    def test_describe_method_unknown_method(self) -> None:
+        err = self._error("system.describe_method", {"namespace": "myns", "nsref": "nope"})
+        assert err["code"] == INVALID_PARAMS
+        assert "nope" in err["message"]
