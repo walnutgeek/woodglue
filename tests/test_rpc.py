@@ -236,7 +236,7 @@ def raises_secret() -> str:
 
 
 class CodedError(Exception):
-    """Not an `RpcError`, but has an int `code` like `HTTPError` or `SystemExit`."""
+    """Not an `RpcError`, but has an int `code` like `urllib.error.HTTPError`."""
 
     def __init__(self, message: str):
         super().__init__(message)

@@ -43,16 +43,9 @@ class RpcError(Exception):
     Application-level JSON-RPC error that a node may raise to report a
     client-visible failure. `str(exc)` is the message.
 
-    Subclasses may set `code` as a class attribute and then be constructed
-    from just a message:
-
-    ```
-    class NotFound(RpcError):
-        code = -32001
-
-    raise NotFound("no such ticker", data={"ticker": "XYZ"})
-    raise RpcError(INVALID_PARAMS, "bad date range")
-    ```
+    Construct as `RpcError(code, message, data=None)`, or set `code` as a
+    class attribute on a subclass and construct it from just a message
+    (`data` is then keyword-only):
 
     >>> class NotFound(RpcError):
     ...     code = -32001
