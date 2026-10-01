@@ -10,9 +10,13 @@ Commands:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import signal
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import FrameType
 
 from lythonic import GlobalRef
 from lythonic.compose.cli import ActionTree, Main, RunContext
@@ -36,6 +40,30 @@ main_at = ActionTree(WoodglueMain)
 
 def _pid_file(data_dir: Path) -> Path:
     return data_dir / "wgl.pid"
+
+
+def _install_shutdown_handlers(
+    loop: asyncio.AbstractEventLoop, on_signal: Callable[[str], None]
+) -> None:
+    """
+    Route SIGTERM and SIGINT to `on_signal(signal_name)`, called on the loop's thread.
+
+    Without this, SIGTERM (from `wgl stop` or systemd) kills the process without
+    unwinding, so engines never stop and `wgl.pid` is left behind. A signal that
+    is already ignored at startup (e.g. SIGINT for a `nohup` or background job)
+    stays ignored, matching Python's own SIGINT behavior.
+    """
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        if signal.getsignal(sig) is signal.SIG_IGN:
+            continue
+        try:
+            loop.add_signal_handler(sig, on_signal, sig.name)
+        except NotImplementedError:
+            # Windows event loops lack add_signal_handler; hop onto the loop explicitly.
+            def _handler(signum: int, _frame: FrameType | None) -> None:
+                loop.call_soon_threadsafe(on_signal, signal.Signals(signum).name)
+
+            signal.signal(sig, _handler)
 
 
 def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
@@ -161,7 +189,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     mounts["system"] = MountContext("system", data_dir)
 
     app = create_app(namespaces=namespaces, config=config, engine_registry=registry, mounts=mounts)
-    app.listen(port, host)
+    server = app.listen(port, host)
     print(f"Woodglue listening on http://{host}:{port}")
     print(f"  RPC endpoint: http://{host}:{port}/rpc")
     if config.docs.enabled:
@@ -172,23 +200,32 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     if registry.has_engines():
         print(f"  Engine: enabled ({', '.join(registry.list_prefixes())})")
 
+    ioloop = tornado.ioloop.IOLoop.current()
+
+    # Shut down on the running loop so engine tasks are cancelled by live loop code,
+    # rather than via run_until_complete after the loop has already stopped.
+    async def _shutdown(signal_name: str) -> None:
+        print(f"Received {signal_name}, shutting down")
+        server.stop()
+        await registry.stop_all()
+        ioloop.stop()
+
+    _install_shutdown_handlers(
+        ioloop.asyncio_loop,  # pyright: ignore[reportAttributeAccessIssue]
+        lambda signal_name: ioloop.add_callback(_shutdown, signal_name),
+    )
+
     pid_path = _pid_file(data_dir)
     pid_path.write_text(str(os.getpid()))
 
     # Start trigger managers once the IOLoop is running
     if registry.has_engines():
-        tornado.ioloop.IOLoop.current().add_callback(registry.start_all)
+        ioloop.add_callback(registry.start_all)
 
     try:
-        tornado.ioloop.IOLoop.current().start()
+        ioloop.start()
     finally:
-        if registry.has_engines():
-            import asyncio
-
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(registry.stop_all())
-        if pid_path.exists():
-            pid_path.unlink()
+        pid_path.unlink(missing_ok=True)
 
 
 @main_at.actions.wrap

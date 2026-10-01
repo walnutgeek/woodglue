@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from lythonic.compose.namespace import Namespace
@@ -53,9 +54,20 @@ class EngineRegistry:
                 engine.trigger_manager.start()
 
     async def stop_all(self) -> None:
-        """Stop all TriggerManagers."""
+        """
+        Stop all TriggerManagers and wait for their poll tasks to finish.
+
+        `TriggerManager.stop()` only requests cancellation. Awaiting the tasks lets
+        them unwind before a caller stops the event loop, which would otherwise
+        leave them pending.
+        """
+        tasks: list[asyncio.Task[None]] = []
         for engine in self._engines.values():
+            task = engine.trigger_manager._task  # pyright: ignore[reportPrivateUsage]
             engine.trigger_manager.stop()
+            if task is not None:
+                tasks.append(task)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def create_engine(mount: MountContext, namespace: Namespace) -> NamespaceEngine:
