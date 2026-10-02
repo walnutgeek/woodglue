@@ -2,8 +2,8 @@
 Per-namespace engine instances and registry.
 
 `activate_triggers` runs on every `wgl start`. The node configs decide which triggers
-exist; the stored activation status decides whether each one is on. A trigger paused
-through the `deactivate_trigger` system API stays paused across restarts until it is
+exist; the stored activation status decides whether each one is on. A trigger disabled
+through the `deactivate_trigger` system API stays disabled across restarts until it is
 explicitly reactivated with `activate_trigger`.
 """
 
@@ -97,7 +97,7 @@ def create_engine(mount: MountContext, namespace: Namespace) -> NamespaceEngine:
 
 @dataclass(frozen=True)
 class TriggerActivationResult:
-    """Outcome of `activate_triggers`: names activated and names left paused."""
+    """Outcome of `activate_triggers`: names activated and names left disabled."""
 
     activated: list[str]
     left_disabled: list[str]
@@ -107,10 +107,8 @@ def activate_triggers(engine: NamespaceEngine) -> TriggerActivationResult:
     """
     Activate the triggers defined in namespace node configs, as done on every start.
 
-    The config decides which triggers exist; the stored activation status decides
-    whether each is on. New triggers and already active ones are activated (an active
-    one keeps its `last_run_at`). A trigger stored as `disabled` is left untouched, so
-    a pause made through the API lasts until the trigger is explicitly reactivated.
+    New and already active triggers are activated (an active one keeps its
+    `last_run_at`). A trigger stored as `disabled` is skipped and its row left untouched.
     """
     activated: list[str] = []
     left_disabled: list[str] = []

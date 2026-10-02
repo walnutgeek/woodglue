@@ -12,9 +12,6 @@ Commands:
 `wgl start` never prints the token, since its output may be captured in logs
 (e.g. the systemd journal). Use `wgl token` to read it. Rotation with `--new`
 takes effect immediately: the server checks `auth.db` on every request.
-
-`wgl start` activates configured triggers but leaves paused (disabled) ones
-paused, listing them as `Trigger 'x' left disabled`.
 """
 
 from __future__ import annotations

@@ -250,7 +250,7 @@ def build_system_namespace(
         return activation or {"name": name, "status": "activated"}
 
     def deactivate_trigger(namespace: str, name: str) -> dict[str, Any]:
-        """Deactivate a trigger by name. The pause survives restarts until `activate_trigger`."""
+        """Deactivate a trigger by name. It stays disabled across restarts until `activate_trigger`."""
         engine = _get_engine(registry, namespace)
         with engine.mount.activate():
             engine.trigger_manager.deactivate(name)
