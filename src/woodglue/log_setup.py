@@ -29,7 +29,8 @@ storage:
 ```
 
 With `log_file: null` outside systemd, records go to stderr with a timestamp so
-they are not lost.
+they are not lost. An unknown level name in `log_level` or `loggers` stops
+`wgl start` with a `ValueError` rather than silently falling back to DEBUG.
 
 ## Custom setup with `logging:`
 

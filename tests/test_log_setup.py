@@ -174,7 +174,9 @@ def test_logging_section_replaces_defaults(tmp_path: Path) -> None:
         JOURNAL_ENV,
     )
     assert desc == "Logging per woodglue.yaml logging: section"
-    assert _added_handlers() == []
+    [handler] = logging.getLogger().handlers
+    assert isinstance(handler, logging.FileHandler)
+    assert not isinstance(handler, logging.handlers.RotatingFileHandler)
     assert not (tmp_path / "wgl.log").exists()
     assert logging.getLogger().level == logging.DEBUG
     logging.getLogger("woodglue.test").debug("via dictconfig")
@@ -185,9 +187,11 @@ def test_logging_section_replaces_defaults(tmp_path: Path) -> None:
 
 def test_logging_section_removes_previously_installed_defaults(tmp_path: Path) -> None:
     _configure(tmp_path, "", JOURNAL_ENV)
+    [journal] = _added_handlers()
+    # No `root:` key, so `dictConfig` itself leaves root handlers alone.
     _configure(
         tmp_path,
         "logging:\n  version: 1\n  disable_existing_loggers: false\n",
         JOURNAL_ENV,
     )
-    assert _added_handlers() == []
+    assert journal not in logging.getLogger().handlers
