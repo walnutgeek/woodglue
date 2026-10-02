@@ -12,6 +12,9 @@ Commands:
 `wgl start` never prints the token, since its output may be captured in logs
 (e.g. the systemd journal). Use `wgl token` to read it. Rotation with `--new`
 takes effect immediately: the server checks `auth.db` on every request.
+
+`wgl start` activates configured triggers but leaves paused (disabled) ones
+paused, listing them as `Trigger 'x' left disabled`.
 """
 
 from __future__ import annotations
@@ -174,10 +177,12 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
             ns.mount(storage)
             engine = create_engine(mount, ns)
             with mount.activate():
-                activated = activate_triggers(engine)
+                triggers = activate_triggers(engine)
             registry.register(engine)
-            if activated:
-                print(f"  Triggers activated for '{prefix}': {', '.join(activated)}")
+            if triggers.activated:
+                print(f"  Triggers activated for '{prefix}': {', '.join(triggers.activated)}")
+            for name in triggers.left_disabled:
+                print(f"  Trigger '{name}' left disabled in '{prefix}'")
 
     # Always mount the system namespace (introspection + engine facade)
     from woodglue.apps.system_api import build_system_namespace
