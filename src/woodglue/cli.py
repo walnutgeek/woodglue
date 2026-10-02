@@ -79,8 +79,11 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
     storage = config.storage
     user_log_file = storage.log_file  # save before resolve_paths overwrites
     storage.resolve_paths(data_dir)
-    # Override log_file default ("lyth.log" -> "wgl.log")
-    storage.log_file = resolve_file(data_dir, user_log_file, "wgl.log")
+    # Override log_file default ("lyth.log" -> "wgl.log"); an explicit null means no file log.
+    if storage.log_file_explicit and user_log_file is None:
+        storage.log_file = None
+    else:
+        storage.log_file = resolve_file(data_dir, user_log_file, "wgl.log")
     # Resolve auth_db (woodglue-specific)
     storage.auth_db = resolve_file(data_dir, storage.auth_db, "auth.db")
 
@@ -133,15 +136,9 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     config = load_config(data_dir)
     _resolve_storage(config, data_dir)
 
-    # File logging (same format as lyth)
-    from lythonic.compose.engine import LogConfig
+    from woodglue.log_setup import setup_logging
 
-    LogConfig(
-        log_file=config.storage.log_file,
-        log_level=config.storage.log_level,
-        loggers=config.storage.loggers,
-    ).setup_logging()
-    print(f"  Logging to {config.storage.log_file}")
+    print(f"  {setup_logging(config)}")
 
     # CLI args override config values
     host = root.host if root.host != "127.0.0.1" else config.host

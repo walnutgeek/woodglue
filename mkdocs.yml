@@ -66,6 +66,7 @@ nav:
       - woodglue.config: reference/config.md
       - woodglue.client: reference/client.md
       - woodglue.cli: reference/cli.md
+      - woodglue.log_setup: reference/log-setup.md
       - apps:
           - woodglue.apps.server: reference/apps-server.md
           - woodglue.apps.rpc: reference/apps-rpc.md
