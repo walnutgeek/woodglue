@@ -51,6 +51,8 @@ def create_app(
     if config.ui.enabled:
         ui_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
         if ui_dist.is_dir():
+            # Bare `/` and `/ui` otherwise 404; the static handler only matches `/ui/...`.
+            handlers.append((r"/(ui)?", tornado.web.RedirectHandler, {"url": "/ui/"}))
             handlers.append(
                 (
                     r"/ui/(.*)",
