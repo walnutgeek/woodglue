@@ -20,6 +20,8 @@ from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 from typing_extensions import override
 
+from woodglue.access import Caller
+from woodglue.apps.authn import request_caller
 from woodglue.config import NamespaceEntry
 
 
@@ -348,29 +350,30 @@ def generate_openapi_spec(
 
 
 class _AuthDocHandler(tornado.web.RequestHandler):
-    """Base handler for doc endpoints with bearer token auth."""
+    """
+    Base handler for doc endpoints. Requires an authenticated Caller and shows
+    only the namespaces that Caller can see; `system` is always shown.
+    """
+
+    caller: Caller | None = None
 
     @override
     def prepare(self) -> None:
-        if not self.application.settings.get("auth_enabled", False):
-            return
-        auth_db = self.application.settings.get("auth_db")
-        if auth_db is None:
-            return
-        auth_header = self.request.headers.get("Authorization", "")
-        token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
-        if not token:
-            token = self.get_argument("token", "")
-        if not token:
+        self.caller = request_caller(self)
+        if self.caller is None:
             self.set_status(401)
             self.finish("Unauthorized")
-            return
-        from woodglue.token_store import validate_token
 
-        if not validate_token(auth_db, token):
-            self.set_status(401)
-            self.finish("Unauthorized")
-            return
+    def visible_index(self) -> dict[str, dict[str, NamespaceNode]]:
+        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
+            "method_index"
+        ]
+        caller = self.caller
+        return {
+            prefix: methods
+            for prefix, methods in method_index.items()
+            if prefix == "system" or caller is None or caller.can_see(prefix)
+        }
 
 
 class LlmsTxtHandler(_AuthDocHandler):
@@ -378,11 +381,8 @@ class LlmsTxtHandler(_AuthDocHandler):
 
     @override
     def get(self) -> None:
-        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
-            "method_index"
-        ]
         self.set_header("Content-Type", "text/plain; charset=utf-8")
-        self.write(generate_llms_txt(method_index))
+        self.write(generate_llms_txt(self.visible_index()))
 
 
 class MethodDocHandler(_AuthDocHandler):
@@ -394,9 +394,7 @@ class MethodDocHandler(_AuthDocHandler):
 
     @override
     def get(self, path: str) -> None:
-        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
-            "method_index"
-        ]
+        method_index = self.visible_index()
 
         if not path.endswith(".md"):
             raise tornado.web.HTTPError(404)
@@ -428,8 +426,5 @@ class OpenApiHandler(_AuthDocHandler):
 
     @override
     def get(self) -> None:
-        method_index: dict[str, dict[str, NamespaceNode]] = self.application.settings[
-            "method_index"
-        ]
         self.set_header("Content-Type", "application/json")
-        self.write(generate_openapi_spec(method_index))
+        self.write(generate_openapi_spec(self.visible_index()))

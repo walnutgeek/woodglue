@@ -4,6 +4,15 @@ JSON-RPC 2.0 handler backed by a lythonic Namespace.
 Dispatches JSON-RPC method calls to NamespaceNode callables, validates
 parameters against Method.args, and returns standard JSON-RPC 2.0 responses.
 
+Every request runs as a `woodglue.access.Caller` (see `woodglue.apps.authn`):
+
+- No valid credential: `-32000 "Unauthorized"`.
+- A namespace the Caller cannot see is reported as `-32601 "Method not found"`,
+  so its existence does not leak.
+- A visible namespace without a `call` Grant: `-32003 "Forbidden: ..."`.
+- `system.*` methods check their own Grants (see `woodglue.apps.system_api`)
+  and report a missing one as `-32003` too.
+
 Errors raised by a node:
 
 - `RpcError` (or a subclass) reports an application error to the client:
@@ -28,7 +37,12 @@ import tornado.web
 from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
+from woodglue.access import AccessDenied, Action, Caller, current_caller
+from woodglue.apps.authn import request_caller
+
 logger = logging.getLogger(__name__)
+
+SYSTEM_PREFIX = "system"
 
 # JSON-RPC 2.0 standard error codes
 PARSE_ERROR = -32700
@@ -36,6 +50,10 @@ INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
+
+# Server-defined error codes
+UNAUTHORIZED = -32000
+FORBIDDEN = -32003
 
 
 class RpcError(Exception):
@@ -116,33 +134,22 @@ class JsonRpcHandler(tornado.web.RequestHandler):
     prefix strings to ``lythonic.compose.namespace.Namespace`` instances.
     """
 
+    caller: Caller | None = None
+
     @override
     def prepare(self) -> None:
         self.set_header("Content-Type", "application/json")
-        if not self.application.settings.get("auth_enabled", False):
-            return
-        auth_db = self.application.settings.get("auth_db")
-        if auth_db is None:
-            return
-        token = self._extract_bearer_token()
-        if not token:
+        self.caller = request_caller(self)
+        if self.caller is None:
             self._write_unauthorized()
-            return
-        from woodglue.token_store import validate_token
-
-        if not validate_token(auth_db, token):
-            self._write_unauthorized()
-            return
-
-    def _extract_bearer_token(self) -> str:
-        auth_header = self.request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            return auth_header[7:].strip()
-        return ""
 
     def _write_unauthorized(self) -> None:
         self.write(
-            {"jsonrpc": "2.0", "error": {"code": -32000, "message": "Unauthorized"}, "id": None}
+            {
+                "jsonrpc": "2.0",
+                "error": {"code": UNAUTHORIZED, "message": "Unauthorized"},
+                "id": None,
+            }
         )
         self.finish()
 
@@ -195,9 +202,17 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             return
 
         node = methods.get(method_name)
-        if node is None:
+        if node is None or (
+            prefix != SYSTEM_PREFIX and self.caller is not None and not self.caller.can_see(prefix)
+        ):
             self.write(_error_response(METHOD_NOT_FOUND, f"Method not found: {method}", request_id))
             return
+        # System methods check the action they need against the namespace they touch.
+        if prefix != SYSTEM_PREFIX and self.caller is not None:
+            if not self.caller.can(Action.call, prefix):
+                denied = AccessDenied(Action.call, prefix)
+                self.write(_error_response(FORBIDDEN, str(denied), request_id))
+                return
 
         # Build kwargs from params
         kwargs: dict[str, Any] = {}
@@ -259,12 +274,17 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         mounts: dict[str, MountContext] = self.application.settings.get("mounts", {})
         mount = mounts.get(prefix)
         token = current_mount.set(mount) if mount else None
+        caller_token = current_caller.set(self.caller)
 
         # Call the method
         try:
             result = node(**kwargs)
             if inspect.isawaitable(result):
                 result = await result
+        except AccessDenied as exc:
+            logger.warning("Access denied calling %s: %s", method, exc)
+            self.write(_error_response(FORBIDDEN, str(exc), request_id))
+            return
         except RpcError as exc:
             # Expected, client-caused failure: no traceback.
             logger.warning("RPC error calling %s: %d %s", method, exc.code, exc.message)
@@ -275,6 +295,7 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             self.write(_error_response(INTERNAL_ERROR, "Internal error", request_id))
             return
         finally:
+            current_caller.reset(caller_token)
             if token is not None:
                 current_mount.reset(token)
 

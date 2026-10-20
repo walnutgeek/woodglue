@@ -27,8 +27,8 @@ A named set of Grants given to Users, e.g. `admin`, `operator`, `viewer`.
 _Avoid_: group, permission set
 
 **Grant**:
-Permission to perform one action on the namespaces matching a pattern, e.g. `call`
-on `reports.*`.
+Permission to perform one action on the targets matching a pattern, e.g. `call` on
+`reports`, or `view` on `ui:*`.
 _Avoid_: permission, scope, ACL entry
 
 **Service User**:

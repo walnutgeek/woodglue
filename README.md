@@ -22,14 +22,14 @@ JSON-RPC 2.0 server with auto-generated docs, built on [lythonic](https://github
 
 **lythonic** provides the core runtime: namespaces for organizing methods, DAG-based orchestration, result caching, and scheduled triggers.
 
-**woodglue** adds the serving layer: a Tornado HTTP server, JSON-RPC 2.0 dispatch, bearer token authentication, a built-in browser UI, and automatic docs generation (llms.txt, OpenAPI, per-method markdown).
+**woodglue** adds the serving layer: a Tornado HTTP server, JSON-RPC 2.0 dispatch, authentication with per-namespace authorization, a built-in browser UI, and automatic docs generation (llms.txt, OpenAPI, per-method markdown).
 
 ## Features
 
 - JSON-RPC 2.0 with multi-namespace routing (`billing.create_invoice`, `analytics.query`)
 - Auto-generated docs: `llms.txt` index, per-method markdown, OpenAPI 3.0.3
 - Built-in UI for API browsing, trigger management, and DAG visualization
-- Bearer token authentication
+- Users, Roles, and per-namespace Grants; Personal Access Tokens
 - Typed async client with auto-resolved return types via `x-global-ref`
 - YAML-driven namespace configuration with per-method tags
 - DAG orchestration with scheduled triggers (via lythonic)
@@ -65,8 +65,10 @@ Start the server:
 wgl start
 ```
 
-Auth is enabled by default. `wgl start` creates a bearer token on first run but
-never prints it; use `wgl token` to see it and `wgl token --new` to rotate it.
+Auth is enabled by default. `wgl start` creates a token for the built-in `admin`
+User on first run but never prints it; use `wgl token` to see it and
+`wgl token --new` to rotate it. `wgl user` manages other Users, their Roles, and
+their Personal Access Tokens.
 
 Endpoints:
 

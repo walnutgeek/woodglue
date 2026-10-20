@@ -116,6 +116,16 @@ def test_build_system_namespace_has_all_methods() -> None:
         "fire_trigger",
         "activate_trigger",
         "deactivate_trigger",
+        "whoami",
+        "create_token",
+        "list_tokens",
+        "revoke_token",
+        "list_users",
+        "create_service_user",
+        "disable_user",
+        "enable_user",
+        "assign_role",
+        "unassign_role",
     }
     actual = set(system_ns._nodes.keys())  # pyright: ignore[reportPrivateUsage]
     assert expected == actual

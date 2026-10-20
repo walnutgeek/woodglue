@@ -7,12 +7,13 @@ import tornado.testing
 from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
+from woodglue.access import resolve_roles
 from woodglue.apps.rpc import RpcError
 from woodglue.apps.server import create_app
+from woodglue.auth_store import AuthStore
 from woodglue.client import WoodglueClient, WoodglueRpcError
 from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig, WoodglueStorageConfig
 from woodglue.hello import HelloIn, HelloOut, hello, pydantic_hello
-from woodglue.token_store import ensure_token
 
 
 def reject(reason: str) -> str:
@@ -134,9 +135,9 @@ class TestWoodglueClientWithAuth(tornado.testing.AsyncHTTPTestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self._db_path = Path(self._tmp.name) / "auth.db"
-        token = ensure_token(self._db_path)
-        assert token is not None
-        self._token = token
+        store = AuthStore(self._db_path, resolve_roles({}))
+        store.ensure_admin_token()
+        self._token = store.admin_tokens()[0]
         super().setUp()
 
     @override

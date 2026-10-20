@@ -10,6 +10,7 @@ from lythonic.compose.namespace import Namespace
 
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
+from woodglue.auth_store import AuthStore
 from woodglue.config import NamespaceEntry, WoodglueConfig
 from woodglue.engine import EngineRegistry
 from woodglue.mount import MountContext
@@ -20,6 +21,7 @@ def create_app(
     config: WoodglueConfig | None = None,
     engine_registry: EngineRegistry | None = None,
     mounts: dict[str, MountContext] | None = None,
+    auth_store: AuthStore | None = None,
 ) -> tornado.web.Application:
     """
     Build a Tornado Application with JSON-RPC and optional docs/UI routes.
@@ -27,9 +29,15 @@ def create_app(
     `namespaces` maps prefix strings to `(Namespace, NamespaceEntry)` tuples.
     The plain `Namespace` dict (all namespaces) is stored in app settings for
     internal use. The `method_index` is filtered by `expose_api`.
+
+    With auth enabled, `auth_store` defaults to one opened on
+    `config.storage.auth_db`; pass it to share the instance the system
+    namespace uses.
     """
     if config is None:
         config = WoodglueConfig(namespaces={})
+    if auth_store is None and config.auth.enabled and config.storage.auth_db is not None:
+        auth_store = AuthStore(config.storage.auth_db, config.auth.resolved_roles())
 
     # Plain namespace dict for internal use (e.g. `wgl run`)
     plain_namespaces = {prefix: ns for prefix, (ns, _) in namespaces.items()}
@@ -67,7 +75,7 @@ def create_app(
         method_index=method_index,
         config=config,
         auth_enabled=config.auth.enabled,
-        auth_db=config.storage.auth_db,
+        auth_store=auth_store,
         engine_registry=engine_registry,
         mounts=mounts or {},
     )

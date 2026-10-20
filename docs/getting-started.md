@@ -61,14 +61,34 @@ wgl start
 
 ## Get the Auth Token
 
-Bearer token auth is enabled by default (`auth.enabled` in `woodglue.yaml`).
-The token is created on first start, or by `wgl token`, and stored in
-`data/auth.db`. `wgl start` never prints it. To see or rotate it:
+Auth is enabled by default (`auth.enabled` in `woodglue.yaml`). The server
+keeps Users, Role assignments, and tokens in `data/auth.db`. On first start it
+creates a token for the built-in `admin` User, which holds every Grant.
+`wgl start` never prints it. To see or rotate it:
 
 ```bash
-wgl token          # print the current token
+wgl token          # print the admin token
 wgl token --new    # replace it; the running server picks it up immediately
 ```
+
+To give a script narrower access, define a Role and issue a Personal Access
+Token to a Service User:
+
+```yaml
+auth:
+  roles:
+    reporter: ["call myapp", "read myapp"]
+```
+
+```bash
+wgl user add ci
+wgl user assign ci reporter
+wgl user issue ci nightly --days=90       # prints the secret once
+```
+
+A Grant is `"<action> <pattern>"`, where the action is `call`, `read`,
+`trigger`, `view`, or `admin`, and the pattern is a glob over namespace names.
+See `woodglue.access` for details.
 
 ## Call via JSON-RPC
 

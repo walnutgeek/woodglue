@@ -23,7 +23,8 @@ from textwrap import dedent
 import pytest
 from tornado.httpclient import AsyncHTTPClient
 
-from woodglue.token_store import list_tokens
+from woodglue.access import resolve_roles
+from woodglue.auth_store import AuthStore
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="POSIX signals cannot be sent to a subprocess on Windows"
@@ -158,5 +159,5 @@ async def test_start_with_auth_never_prints_token(tmp_path: Path) -> None:
             out = "".join(startup) + await _finish(proc)
         assert proc.returncode == 0, out
         assert "wgl token" in out
-        [token] = list_tokens(tmp_path / "auth.db")
+        [token] = AuthStore(tmp_path / "auth.db", resolve_roles({})).admin_tokens()
         assert token not in out

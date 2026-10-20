@@ -64,6 +64,8 @@ nav:
   - Getting Started: getting-started.md
   - API Reference:
       - woodglue.config: reference/config.md
+      - woodglue.access: reference/access.md
+      - woodglue.auth_store: reference/auth-store.md
       - woodglue.client: reference/client.md
       - woodglue.cli: reference/cli.md
       - woodglue.log_setup: reference/log-setup.md

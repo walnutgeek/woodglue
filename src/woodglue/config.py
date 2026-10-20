@@ -20,6 +20,8 @@ from pydantic import BaseModel, PrivateAttr, model_validator
 from pydantic_yaml import parse_yaml_file_as
 from typing_extensions import override
 
+from woodglue.access import Grant, resolve_roles
+
 CONFIG_FILENAME = "woodglue.yaml"
 
 
@@ -92,9 +94,25 @@ class NamespaceEntry(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    """Bearer token authentication settings."""
+    """
+    Authentication and authorization settings.
+
+    `roles` maps a Role name to its Grants, written as `"<action> <pattern>"`
+    strings (see `woodglue.access`). The `admin` Role is built in. When
+    `enabled` is false, every request runs as an anonymous Caller with all
+    Grants.
+    """
 
     enabled: bool = True
+    roles: dict[str, list[str]] = {}
+
+    @model_validator(mode="after")
+    def _roles_parse(self) -> AuthConfig:
+        resolve_roles(self.roles)
+        return self
+
+    def resolved_roles(self) -> dict[str, tuple[Grant, ...]]:
+        return resolve_roles(self.roles)
 
 
 class WoodglueConfig(BaseModel):
