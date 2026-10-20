@@ -62,9 +62,13 @@ class DocsConfig(BaseModel):
 
 
 class UiConfig(BaseModel):
-    """JavaScript documentation UI settings."""
+    """
+    Web interface settings. `enabled` serves the Console at `/console/`.
+    `default` names the UI that `/` redirects to.
+    """
 
     enabled: bool = True
+    default: str = "console"
 
 
 class NamespaceEntry(BaseModel):

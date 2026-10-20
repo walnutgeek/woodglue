@@ -4,25 +4,10 @@ import { marked } from "marked";
 // Auth
 // ============================================================
 
-function getToken() {
-  const cookies = document.cookie.split(";").map((c) => c.trim());
-  for (const c of cookies) {
-    if (c.startsWith("wgl_token=")) return c.substring(10);
-  }
-  return null;
-}
-
-function setToken(token) {
-  document.cookie = `wgl_token=${token};path=/;max-age=${365 * 86400};SameSite=Strict`;
-}
-
-function clearToken() {
-  document.cookie = "wgl_token=;path=/;max-age=0";
-}
-
-function authHeaders() {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+// The Session cookie is HttpOnly and sent by the browser; this script never sees a credential.
+function redirectToLogin() {
+  const next = location.pathname + location.search + location.hash;
+  location.assign(`/auth/login?next=${encodeURIComponent(next)}`);
 }
 
 // ============================================================
@@ -34,14 +19,13 @@ let _reqId = 0;
 async function rpcCall(method, params = {}) {
   const resp = await fetch("/rpc", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: ++_reqId }),
   });
   const data = await resp.json();
   if (data.error) {
     if (data.error.code === -32000) {
-      clearToken();
-      showTokenPrompt();
+      redirectToLogin();
       throw new Error("Unauthorized");
     }
     throw new Error(data.error.message);
@@ -50,10 +34,9 @@ async function rpcCall(method, params = {}) {
 }
 
 async function authFetch(url) {
-  const resp = await fetch(url, { headers: authHeaders() });
+  const resp = await fetch(url);
   if (resp.status === 401) {
-    clearToken();
-    showTokenPrompt();
+    redirectToLogin();
     return null;
   }
   return resp;
@@ -64,7 +47,8 @@ async function authFetch(url) {
 // ============================================================
 
 const state = {
-  view: "home",       // home | namespace | run | method
+  view: "home",       // home | namespace | run | method | tokens
+  me: null,           // system.whoami result
   namespaces: {},     // { prefix: { expose_api, run_engine, method_count, has_cache, methods: [...] } }
   selectedNs: null,
   selectedRun: null,
@@ -74,6 +58,8 @@ const state = {
   runFilter: "all",   // all | running | completed | failed
   expandedSubDags: new Set(), // node labels with expanded sub-DAGs
   triggers: [],       // triggers for selectedNs
+  tokens: [],         // the signed-in User's Personal Access Tokens
+  issuedToken: null,  // { name, secret } of a token just created, shown once
 };
 
 // ============================================================
@@ -81,6 +67,7 @@ const state = {
 // ============================================================
 
 async function loadAllData() {
+  state.me = await rpcCall("system.whoami");
   const nsInfos = (await rpcCall("system.list_namespaces")) || [];
 
   const nsMap = {};
@@ -183,7 +170,9 @@ function renderSidebar() {
     }
   }
 
+  html += renderAccountSection();
   nav.innerHTML = html;
+  bindAccountSection(nav);
 
   // Bind namespace clicks
   nav.querySelectorAll(".ns-item").forEach((el) => {
@@ -208,7 +197,9 @@ function renderBreadcrumb() {
   const bc = document.getElementById("breadcrumb");
   const crumbs = [{ label: "woodglue", view: "home" }];
 
-  if (state.view !== "home") {
+  if (state.view === "tokens") {
+    crumbs.push({ label: "tokens", view: "tokens", current: true });
+  } else if (state.view !== "home") {
     crumbs.push({ label: state.selectedNs || state.selectedMethod?.split(".")[0], view: "namespace" });
   }
   if (state.view === "run" && state.selectedRun) {
@@ -254,6 +245,9 @@ function renderView() {
       break;
     case "method":
       view.innerHTML = '<div class="doc-content" id="doc-content"><p>Loading...</p></div>';
+      break;
+    case "tokens":
+      renderTokens(view);
       break;
     default:
       renderHome(view);
@@ -854,24 +848,106 @@ async function loadMethodDoc(qualified) {
 }
 
 // ============================================================
-// Token Prompt
+// Account and Personal Access Tokens
 // ============================================================
 
-function showTokenPrompt() {
-  const view = document.getElementById("view");
-  view.innerHTML = `
-    <div class="token-prompt">
-      <h2>Authentication Required</h2>
-      <p>Enter your auth token (printed on server start):</p>
-      <input type="text" id="token-input" placeholder="Paste token here" />
-      <button id="token-submit">Connect</button>
+function renderAccountSection() {
+  const me = state.me;
+  if (!me || me.user_id === null) return "";
+  const who = escapeHtml(me.email || me.name);
+  return `
+    <div class="nav-section-label">Account</div>
+    <div class="account">
+      <div class="account-name" title="${who}">${who}</div>
+      <div class="account-roles">${escapeHtml(me.roles.join(", ") || "no roles")}</div>
+      <div class="account-actions">
+        <button class="link-btn" id="nav-tokens">Tokens</button>
+        <form method="post" action="/auth/logout">
+          <button class="link-btn" type="submit">Sign out</button>
+        </form>
+      </div>
     </div>`;
-  document.getElementById("token-submit").addEventListener("click", () => {
-    const val = document.getElementById("token-input").value.trim();
-    if (val) { setToken(val); location.reload(); }
+}
+
+function bindAccountSection(nav) {
+  const tokensBtn = nav.querySelector("#nav-tokens");
+  if (tokensBtn) {
+    tokensBtn.addEventListener("click", async () => {
+      await loadTokens();
+      navigate("tokens", { selectedNs: null, selectedRun: null });
+    });
+  }
+}
+
+async function loadTokens() {
+  state.tokens = (await rpcCall("system.list_tokens")) || [];
+}
+
+function renderTokens(el) {
+  const issued = state.issuedToken;
+  const rows = state.tokens
+    .map(
+      (t) => `
+      <tr>
+        <td>${escapeHtml(t.name)}</td>
+        <td class="mono">${t.grants ? escapeHtml(t.grants.join(", ")) : "all of your Grants"}</td>
+        <td>${t.expires_at ? formatTimeFull(t.expires_at) : "never"}</td>
+        <td><button class="link-btn danger" data-revoke="${escapeHtml(t.id)}">Revoke</button></td>
+      </tr>`
+    )
+    .join("");
+  el.innerHTML = `
+    <div class="home-title">Personal Access Tokens</div>
+    <div class="home-subtitle">Send one as <code>Authorization: Bearer &lt;token&gt;</code> from scripts and the CLI.</div>
+    ${
+      issued
+        ? `<div class="issued-token">
+             <div>New token <b>${escapeHtml(issued.name)}</b>. Copy it now; it is not shown again.</div>
+             <code>${escapeHtml(issued.secret)}</code>
+           </div>`
+        : ""
+    }
+    <form class="token-form" id="token-form">
+      <input name="name" placeholder="Name, e.g. ci" required />
+      <input name="days" type="number" min="1" placeholder="Expires in days (optional)" />
+      <input name="grants" placeholder="Narrow to, e.g. call reports, read * (optional)" />
+      <button type="submit">Create token</button>
+    </form>
+    ${
+      state.tokens.length
+        ? `<table class="token-table">
+             <thead><tr><th>Name</th><th>Grants</th><th>Expires</th><th></th></tr></thead>
+             <tbody>${rows}</tbody>
+           </table>`
+        : '<div class="empty-state">No tokens yet.</div>'
+    }`;
+
+  el.querySelector("#token-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const params = { name: form.get("name").trim() };
+    const days = parseInt(form.get("days"), 10);
+    if (days > 0) params.expires_in_days = days;
+    const grants = form.get("grants").split(",").map((g) => g.trim()).filter(Boolean);
+    if (grants.length) params.grants = grants;
+    try {
+      const result = await rpcCall("system.create_token", params);
+      state.issuedToken = { name: params.name, secret: result.secret };
+      await loadTokens();
+      render();
+    } catch (err) {
+      alert(err.message);
+    }
   });
-  document.getElementById("token-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") document.getElementById("token-submit").click();
+
+  el.querySelectorAll("[data-revoke]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Revoke this token? Anything using it stops working.")) return;
+      await rpcCall("system.revoke_token", { token_id: btn.dataset.revoke });
+      state.issuedToken = null;
+      await loadTokens();
+      render();
+    });
   });
 }
 
@@ -925,7 +1001,7 @@ async function init() {
     await loadAllData();
     render();
   } catch (err) {
-    if (err.message === "Unauthorized") return; // token prompt already shown
+    if (err.message === "Unauthorized") return; // already redirecting to the login page
     console.error("Init failed:", err);
     document.getElementById("view").innerHTML = '<div class="empty-state">Failed to connect to server.</div>';
   }

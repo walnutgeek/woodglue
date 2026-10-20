@@ -120,3 +120,61 @@ def test_users_are_found_by_id_name_or_email(tmp_path: Path) -> None:
         store.assign_role(user.id, "no-such-role")
     with pytest.raises(ValueError):
         store.create_service_user("ci")
+
+
+class _Clock:
+    now: datetime
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, **kwargs: float) -> None:
+        self.now += timedelta(**kwargs)
+
+
+def test_session_expires_after_idle_timeout(tmp_path: Path) -> None:
+    clock = _Clock()
+    store = AuthStore(tmp_path / "auth.db", ROLES, clock=clock)
+    user = store.create_service_user("ci")
+    secret = store.create_session(user.id)
+    clock.advance(hours=11)
+    assert store.resolve(secret) is not None
+    # Activity slides the idle window.
+    clock.advance(hours=11)
+    assert store.resolve(secret) is not None
+    clock.advance(hours=12, seconds=1)
+    assert store.resolve(secret) is None
+
+
+def test_session_expires_at_absolute_limit_despite_activity(tmp_path: Path) -> None:
+    clock = _Clock()
+    store = AuthStore(tmp_path / "auth.db", ROLES, clock=clock)
+    user = store.create_service_user("ci")
+    secret = store.create_session(user.id)
+    # 15 * 11h = 165h, under the 7-day (168h) limit; one more step crosses it.
+    for _ in range(15):
+        clock.advance(hours=11)
+        assert store.resolve(secret) is not None
+    clock.advance(hours=11)
+    assert store.resolve(secret) is None
+
+
+def test_ended_or_disabled_sessions_stop_resolving(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.create_service_user("ci")
+    a, b = store.create_session(user.id), store.create_session(user.id)
+    store.end_session(a)
+    assert store.resolve(a) is None
+    assert store.resolve(b) is not None
+    store.set_disabled(user.id, True)
+    assert store.resolve(b) is None
+
+
+def test_sessions_are_not_listed_as_tokens(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.create_service_user("ci")
+    store.create_session(user.id)
+    assert store.list_tokens(user.id) == []

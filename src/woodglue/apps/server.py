@@ -10,6 +10,7 @@ from lythonic.compose.namespace import Namespace
 
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
+from woodglue.apps.uis import UiStaticHandler, ui_path
 from woodglue.auth_store import AuthStore
 from woodglue.config import NamespaceEntry, WoodglueConfig
 from woodglue.engine import EngineRegistry
@@ -56,18 +57,26 @@ def create_app(
         if config.docs.openapi:
             handlers.append((r"/docs/openapi\.json", OpenApiHandler))
 
+    if auth_store is not None:
+        from woodglue.apps.auth_pages import LoginHandler, LogoutHandler
+
+        handlers.append((r"/auth/login", LoginHandler))
+        handlers.append((r"/auth/logout", LogoutHandler))
+
     if config.ui.enabled:
-        ui_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
-        if ui_dist.is_dir():
-            # Bare `/` and `/ui` otherwise 404; the static handler only matches `/ui/...`.
-            handlers.append((r"/(ui)?", tornado.web.RedirectHandler, {"url": "/ui/"}))
+        console_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
+        if console_dist.is_dir():
+            handlers.append((r"/console", tornado.web.RedirectHandler, {"url": "/console/"}))
             handlers.append(
                 (
-                    r"/ui/(.*)",
-                    tornado.web.StaticFileHandler,
-                    {"path": str(ui_dist), "default_filename": "index.html"},
+                    r"/console/(.*)",
+                    UiStaticHandler,
+                    {"path": str(console_dist), "default_filename": "index.html"},
                 )
             )
+        # `/ui/` was the Console's path before 0.0.9; keep old bookmarks working.
+        landing = ui_path(config.ui.default)
+        handlers.append((r"/(ui/?)?", tornado.web.RedirectHandler, {"url": landing}))
 
     return tornado.web.Application(
         handlers,

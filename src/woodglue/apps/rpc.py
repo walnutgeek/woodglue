@@ -7,6 +7,8 @@ parameters against Method.args, and returns standard JSON-RPC 2.0 responses.
 Every request runs as a `woodglue.access.Caller` (see `woodglue.apps.authn`):
 
 - No valid credential: `-32000 "Unauthorized"`.
+- A Session-cookie request that is not `application/json` or comes from
+  another origin: `-32003 "Cross-site request rejected"`.
 - A namespace the Caller cannot see is reported as `-32601 "Method not found"`,
   so its existence does not leak.
 - A visible namespace without a `call` Grant: `-32003 "Forbidden: ..."`.
@@ -38,7 +40,7 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
 from woodglue.access import AccessDenied, Action, Caller, current_caller
-from woodglue.apps.authn import request_caller
+from woodglue.apps.authn import AuthVia, authenticate, is_same_origin
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +141,20 @@ class JsonRpcHandler(tornado.web.RequestHandler):
     @override
     def prepare(self) -> None:
         self.set_header("Content-Type", "application/json")
-        self.caller = request_caller(self)
+        auth = authenticate(self)
+        self.caller = auth.caller
         if self.caller is None:
             self._write_unauthorized()
+            return
+        # A cross-site form or `fetch` cannot send JSON without a CORS preflight,
+        # which this server never answers, so the content type blocks most CSRF;
+        # the origin check covers the rest.
+        if auth.via == AuthVia.cookie and not (
+            self.request.headers.get("Content-Type", "").startswith("application/json")
+            and is_same_origin(self.request)
+        ):
+            self.write(_error_response(FORBIDDEN, "Cross-site request rejected"))
+            self.finish()
 
     def _write_unauthorized(self) -> None:
         self.write(

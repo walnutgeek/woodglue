@@ -10,6 +10,10 @@ Role definitions are not stored here: they come from `woodglue.yaml` (see
 `woodglue.access`). A Role assignment naming a Role that is no longer defined
 grants nothing.
 
+A **Session** is the credential behind a browser's cookie. It ends after
+`session_idle` without use or `session_max` after creation, whichever is first;
+woodglue does not re-check with the Identity Provider in between.
+
 The built-in `admin` Service User owns the tokens that `wgl token` prints. Tokens
 from the pre-Users `tokens` table are migrated to it on first open, so existing
 scripts keep working.
@@ -21,9 +25,9 @@ import json
 import logging
 import secrets
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
@@ -34,7 +38,13 @@ from woodglue.access import ADMIN_ROLE, Caller, Grant
 logger = logging.getLogger(__name__)
 
 ADMIN_USER_ID = "admin"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+
+DEFAULT_SESSION_IDLE = timedelta(hours=12)
+DEFAULT_SESSION_MAX = timedelta(days=7)
+
+# Session use is recorded at most this often, to avoid a write on every request.
+_TOUCH_INTERVAL = timedelta(minutes=1)
 
 
 class UserKind(StrEnum):
@@ -44,6 +54,7 @@ class UserKind(StrEnum):
 
 class CredentialKind(StrEnum):
     token = "token"
+    session = "session"
 
 
 class User(BaseModel):
@@ -98,10 +109,24 @@ class AuthStore:
 
     db_path: Path
     roles: dict[str, tuple[Grant, ...]]
+    session_idle: timedelta
+    session_max: timedelta
+    clock: Callable[[], datetime]
 
-    def __init__(self, db_path: Path, roles: dict[str, tuple[Grant, ...]]) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        roles: dict[str, tuple[Grant, ...]],
+        *,
+        session_idle: timedelta = DEFAULT_SESSION_IDLE,
+        session_max: timedelta = DEFAULT_SESSION_MAX,
+        clock: Callable[[], datetime] = _now,
+    ) -> None:
         self.db_path = db_path
         self.roles = roles
+        self.session_idle = session_idle
+        self.session_max = session_max
+        self.clock = clock
         with self._connect() as conn:
             self._migrate(conn)
 
@@ -115,8 +140,13 @@ class AuthStore:
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version >= _SCHEMA_VERSION:
-            return
+        if version < 1:
+            self._create_v1(conn)
+        if version < 2:
+            conn.execute("ALTER TABLE credentials ADD COLUMN last_used_at TEXT")
+        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+    def _create_v1(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -163,12 +193,11 @@ class AuthStore:
                     ),
                 )
             conn.execute("DROP TABLE tokens")
-        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def _ensure_admin_user(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO users (id, name, kind, created_at) VALUES (?, ?, ?, ?)",
-            (ADMIN_USER_ID, ADMIN_USER_ID, UserKind.service, _now().isoformat()),
+            (ADMIN_USER_ID, ADMIN_USER_ID, UserKind.service, self.clock().isoformat()),
         )
         conn.execute(
             "INSERT OR IGNORE INTO role_assignments (user_id, role) VALUES (?, ?)",
@@ -224,7 +253,7 @@ class AuthStore:
             user_id = _new_id("svc")
             conn.execute(
                 "INSERT INTO users (id, name, kind, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, name, UserKind.service, _now().isoformat()),
+                (user_id, name, UserKind.service, self.clock().isoformat()),
             )
             row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
             return self._user_from_row(conn, row)
@@ -301,7 +330,7 @@ class AuthStore:
                 user_id,
                 name,
                 json.dumps(grants) if grants is not None else None,
-                _now().isoformat(),
+                self.clock().isoformat(),
                 expires_at.isoformat() if expires_at else None,
             ),
         )
@@ -374,21 +403,67 @@ class AuthStore:
             )
             return self._insert_token(conn, ADMIN_USER_ID, "wgl token").secret
 
+    # Sessions
+
+    def create_session(self, user_id: str) -> str:
+        """Start a Session for a User and return its secret, for the browser cookie."""
+        now = self.clock()
+        secret = secrets.token_urlsafe(32)
+        with self._connect() as conn:
+            self._require_user(conn, user_id)
+            conn.execute(
+                "INSERT INTO credentials "
+                + "(id, secret, kind, user_id, name, created_at, expires_at, last_used_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    _new_id("ses"),
+                    secret,
+                    CredentialKind.session,
+                    user_id,
+                    "browser",
+                    now.isoformat(),
+                    (now + self.session_max).isoformat(),
+                    now.isoformat(),
+                ),
+            )
+        return secret
+
+    def end_session(self, secret: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM credentials WHERE secret = ? AND kind = ?",
+                (secret, CredentialKind.session),
+            )
+
     # Authentication
 
     def resolve(self, secret: str) -> Caller | None:
-        """Return the Caller for a credential secret, or `None` if it is not valid now."""
+        """
+        Return the Caller for a credential secret, or `None` if it is not valid
+        now. Resolving a Session counts as using it.
+        """
+        now = self.clock()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT c.id AS cid, c.grants, c.expires_at, u.* FROM credentials c "
-                + "JOIN users u ON u.id = c.user_id WHERE c.secret = ?",
+                "SELECT c.id AS cid, c.kind AS ckind, c.grants, c.expires_at, c.last_used_at, "
+                + "u.* FROM credentials c JOIN users u ON u.id = c.user_id WHERE c.secret = ?",
                 (secret,),
             ).fetchone()
             if row is None or row["disabled"]:
                 return None
             expires_at = _parse_time(row["expires_at"])
-            if expires_at is not None and expires_at <= _now():
+            if expires_at is not None and expires_at <= now:
                 return None
+            if row["ckind"] == CredentialKind.session:
+                last_used = _parse_time(row["last_used_at"]) or now
+                if last_used + self.session_idle <= now:
+                    conn.execute("DELETE FROM credentials WHERE id = ?", (row["cid"],))
+                    return None
+                if now - last_used >= _TOUCH_INTERVAL:
+                    conn.execute(
+                        "UPDATE credentials SET last_used_at = ? WHERE id = ?",
+                        (now.isoformat(), row["cid"]),
+                    )
             user = self._user_from_row(conn, row)
         return self._caller(user, row["cid"], row["grants"])
 

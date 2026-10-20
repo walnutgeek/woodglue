@@ -83,4 +83,5 @@ Manage Users, Roles, and tokens with `wgl user`.
 - `GET /docs/llms.txt` — method index
 - `GET /docs/methods/{name}.md` — per-method documentation
 - `GET /docs/openapi.json` — OpenAPI spec
-- `GET /ui/` — documentation UI
+- `GET /console/` — the Console, the built-in browser UI
+- `GET /auth/login` — browser sign-in

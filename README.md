@@ -75,7 +75,8 @@ Endpoints:
 - `POST /rpc` -- JSON-RPC 2.0
 - `GET /docs/llms.txt` -- LLM-friendly method index
 - `GET /docs/openapi.json` -- OpenAPI 3.0.3 spec
-- `GET /ui/` -- browser UI
+- `GET /console/` -- the Console, the built-in browser UI
+- `GET /auth/login` -- browser sign-in
 
 ## Documentation
 

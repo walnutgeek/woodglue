@@ -225,7 +225,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     if config.docs.enabled:
         print(f"  LLM docs:     http://{host}:{port}/docs/llms.txt")
     if config.ui.enabled:
-        print(f"  UI:           http://{host}:{port}/ui/")
+        print(f"  Console:      http://{host}:{port}/console/")
 
     if registry.has_engines():
         print(f"  Engine: enabled ({', '.join(registry.list_prefixes())})")
