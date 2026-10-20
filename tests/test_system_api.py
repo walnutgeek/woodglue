@@ -116,6 +116,7 @@ def test_build_system_namespace_has_all_methods() -> None:
         "fire_trigger",
         "activate_trigger",
         "deactivate_trigger",
+        "list_uis",
         "whoami",
         "create_token",
         "list_tokens",

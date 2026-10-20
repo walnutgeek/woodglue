@@ -89,7 +89,7 @@ def _install_shutdown_handlers(
 
 
 def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
-    """Resolve storage paths relative to data_dir, in place."""
+    """Resolve storage and UI paths relative to data_dir, in place."""
     from lythonic.compose.engine import resolve_file
 
     storage = config.storage
@@ -102,6 +102,8 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
         storage.log_file = resolve_file(data_dir, user_log_file, "wgl.log")
     # Resolve auth_db (woodglue-specific)
     storage.auth_db = resolve_file(data_dir, storage.auth_db, "auth.db")
+    for entry in config.uis.values():
+        entry.path = str(data_dir / entry.path)
 
 
 def load_namespaces(
@@ -206,7 +208,11 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     from woodglue.apps.system_api import build_system_namespace
 
     system_ns = build_system_namespace(
-        namespaces, registry if registry.has_engines() else None, auth_store
+        namespaces,
+        registry if registry.has_engines() else None,
+        auth_store,
+        uis=config.uis,
+        console=config.ui.enabled,
     )
     system_entry = NamespaceEntry(gref="builtin:system", expose_api=True)
     namespaces["system"] = (system_ns, system_entry)
@@ -226,6 +232,8 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
         print(f"  LLM docs:     http://{host}:{port}/docs/llms.txt")
     if config.ui.enabled:
         print(f"  Console:      http://{host}:{port}/console/")
+    for name in config.uis:
+        print(f"  UI:           http://{host}:{port}/ui/{name}/")
 
     if registry.has_engines():
         print(f"  Engine: enabled ({', '.join(registry.list_prefixes())})")

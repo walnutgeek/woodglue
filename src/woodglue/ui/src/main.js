@@ -49,6 +49,7 @@ async function authFetch(url) {
 const state = {
   view: "home",       // home | namespace | run | method | tokens
   me: null,           // system.whoami result
+  uis: [],            // project UIs from system.list_uis, without the Console
   namespaces: {},     // { prefix: { expose_api, run_engine, method_count, has_cache, methods: [...] } }
   selectedNs: null,
   selectedRun: null,
@@ -68,6 +69,7 @@ const state = {
 
 async function loadAllData() {
   state.me = await rpcCall("system.whoami");
+  state.uis = ((await rpcCall("system.list_uis")) || []).filter((u) => u.name !== "console");
   const nsInfos = (await rpcCall("system.list_namespaces")) || [];
 
   const nsMap = {};
@@ -170,6 +172,12 @@ function renderSidebar() {
     }
   }
 
+  if (state.uis.length) {
+    html += '<div class="nav-section-label">UIs</div>';
+    for (const ui of state.uis) {
+      html += `<a class="ui-link" href="${escapeHtml(ui.path)}">${escapeHtml(ui.label)}</a>`;
+    }
+  }
   html += renderAccountSection();
   nav.innerHTML = html;
   bindAccountSection(nav);

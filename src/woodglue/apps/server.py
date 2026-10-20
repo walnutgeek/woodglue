@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from woodglue.auth_store import AuthStore
 from woodglue.config import NamespaceEntry, WoodglueConfig
 from woodglue.engine import EngineRegistry
 from woodglue.mount import MountContext
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -85,6 +88,26 @@ def create_app(
                     {"path": str(console_dist), "default_filename": "index.html"},
                 )
             )
+
+    for name, entry in config.uis.items():
+        if not Path(entry.path).is_dir():
+            logger.warning("UI '%s': directory %s does not exist", name, entry.path)
+        handlers.append((rf"/ui/{name}", tornado.web.RedirectHandler, {"url": f"/ui/{name}/"}))
+        handlers.append(
+            (
+                rf"/ui/{name}/(.*)",
+                UiStaticHandler,
+                {
+                    "path": entry.path,
+                    "default_filename": "index.html",
+                    "ui_name": name,
+                    "spa_fallback": entry.spa_fallback,
+                    "public": entry.public,
+                },
+            )
+        )
+
+    if config.ui.enabled or config.uis:
         # `/ui/` was the Console's path before 0.0.9; keep old bookmarks working.
         landing = ui_path(config.ui.default)
         handlers.append((r"/(ui/?)?", tornado.web.RedirectHandler, {"url": landing}))

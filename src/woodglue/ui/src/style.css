@@ -926,3 +926,16 @@ body {
 
 .token-table th { color: var(--text-secondary); font-weight: 500; }
 .token-table .mono { font-family: var(--font-mono); font-size: 12px; }
+
+.ui-link {
+  display: block;
+  padding: 6px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.ui-link:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}

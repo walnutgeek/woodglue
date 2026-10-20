@@ -14,6 +14,8 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `recent_runs`, `active_runs`, `inspect_run`, `load_io`, `child_runs`, and
   `list_triggers` need `read`.
 - `fire_trigger`, `activate_trigger`, and `deactivate_trigger` need `trigger`.
+- `list_uis` shows the UIs the Caller may open (`view` on `ui:<name>`, or
+  public ones).
 - `whoami` and a User's own tokens (`create_token`, `list_tokens`,
   `revoke_token`) need no Grant. A narrowed token cannot create tokens, so it
   cannot mint one broader than itself.
@@ -24,7 +26,7 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -36,8 +38,9 @@ from pydantic import BaseModel
 from woodglue.access import Action, Caller, check, current_caller
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
+from woodglue.apps.uis import CONSOLE, ui_path
 from woodglue.auth_store import AuthStore, IssuedToken, TokenInfo, UnknownUser, User
-from woodglue.config import NamespaceEntry
+from woodglue.config import NamespaceEntry, UiEntry
 from woodglue.engine import EngineRegistry, NamespaceEngine
 
 
@@ -81,6 +84,13 @@ class WhoAmI(BaseModel):
     roles: list[str]
     narrowed: bool
     """Whether the request's credential is limited to a subset of the User's Grants."""
+
+
+class UiInfo(BaseModel):
+    name: str
+    path: str
+    label: str
+    public: bool
 
 
 class NamespaceInfo(BaseModel):
@@ -135,10 +145,13 @@ def build_system_namespace(
     namespaces: dict[str, tuple[Namespace, NamespaceEntry]],
     registry: EngineRegistry | None,
     auth_store: AuthStore | None = None,
+    uis: Mapping[str, UiEntry] | None = None,
+    console: bool = True,
 ) -> Namespace:
     """
     Build the system Namespace. `auth_store` is `None` when auth is disabled;
-    the token and User management methods then report that.
+    the token and User management methods then report that. `uis` and
+    `console` describe the UIs `list_uis` reports.
     """
     ns = Namespace()
     tags = ["api"]
@@ -320,6 +333,24 @@ def build_system_namespace(
             engine.trigger_manager.deactivate(name)
         return {"name": name, "status": "deactivated"}
 
+    # -- UIs --
+
+    def list_uis() -> list[UiInfo]:
+        """UIs this server hosts that you may open, the Console first."""
+        caller = current_caller.get()
+        result: list[UiInfo] = []
+        if console:
+            result.append(
+                UiInfo(name=CONSOLE, path=ui_path(CONSOLE), label="Console", public=False)
+            )
+        for name in sorted(uis or {}):
+            entry = (uis or {})[name]
+            label = entry.label or name.replace("-", " ").replace("_", " ").title()
+            result.append(UiInfo(name=name, path=ui_path(name), label=label, public=entry.public))
+        if caller is None:
+            return result
+        return [u for u in result if u.public or caller.can(Action.view, f"ui:{u.name}")]
+
     # -- Identity and tokens --
 
     def whoami() -> WhoAmI:
@@ -415,6 +446,7 @@ def build_system_namespace(
         _store().unassign_role(_find_user(user).id, role)
 
     for fn, fn_nsref in [
+        (list_uis, "list_uis"),
         (whoami, "whoami"),
         (create_token, "create_token"),
         (list_tokens, "list_tokens"),

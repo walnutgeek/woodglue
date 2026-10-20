@@ -68,11 +68,28 @@ class DocsConfig(BaseModel):
 class UiConfig(BaseModel):
     """
     Web interface settings. `enabled` serves the Console at `/console/`.
-    `default` names the UI that `/` redirects to.
+    `default` names the UI that `/` redirects to: `console` or a key of `uis`.
     """
 
     enabled: bool = True
     default: str = "console"
+
+
+class UiEntry(BaseModel):
+    """
+    A project UI served at `/ui/<name>/`, next to the Console.
+
+    A Static UI is a directory of built files (`path`, relative to the data
+    dir), such as a single-page app built with `base: "/ui/<name>/"`. With
+    `spa_fallback`, paths without a file extension that match no file return
+    `index.html`, so client-side routes survive a reload; a missing `.js` file
+    is still a 404. Opening a UI needs `view` on `ui:<name>` unless `public`.
+    """
+
+    path: str
+    label: str | None = None
+    spa_fallback: bool = True
+    public: bool = False
 
 
 class NamespaceEntry(BaseModel):
@@ -265,6 +282,8 @@ class WoodglueConfig(BaseModel):
     one of `gref`, `file`, or `entries`, plus optional `expose_api` and
     `run_engine` flags.
 
+    `uis` maps a name to a project UI served at `/ui/<name>/` (see `UiEntry`).
+
     `logging`, when present, is a `logging.config.dictConfig` dict that replaces
     woodglue's default logging setup (see `woodglue.log_setup`).
     """
@@ -276,7 +295,20 @@ class WoodglueConfig(BaseModel):
     docs: DocsConfig = DocsConfig()
     ui: UiConfig = UiConfig()
     auth: AuthConfig = AuthConfig()
+    uis: dict[str, UiEntry] = {}
     logging: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _check_uis(self) -> WoodglueConfig:
+        for name in self.uis:
+            if name == "console" or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
+                raise ValueError(
+                    f"UI name {name!r} must be lowercase letters, digits, '-' or '_', "
+                    + "and not 'console'"
+                )
+        if self.ui.default != "console" and self.ui.default not in self.uis:
+            raise ValueError(f"ui.default {self.ui.default!r} is not a configured UI")
+        return self
 
 
 def load_config(data_dir: Path) -> WoodglueConfig:

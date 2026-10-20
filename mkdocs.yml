@@ -64,6 +64,7 @@ nav:
   - Getting Started: getting-started.md
   - How-to:
       - Identity Providers: how-to/identity-providers.md
+      - Host a project UI: how-to/static-ui.md
   - API Reference:
       - woodglue.config: reference/config.md
       - woodglue.access: reference/access.md
