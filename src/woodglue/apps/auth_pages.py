@@ -39,6 +39,7 @@ from woodglue.apps.identity_providers import (
     admits,
     role_sources,
 )
+from woodglue.apps.ui_proxy import UiSockets
 from woodglue.auth_store import AuthStore, UserDisabled
 from woodglue.config import AuthConfig
 
@@ -173,7 +174,7 @@ class LoginHandler(tornado.web.RequestHandler):
 
 
 class LogoutHandler(tornado.web.RequestHandler):
-    """POST ends the Session and returns to the login page."""
+    """POST ends the Session, closes its UI websockets, and returns to the login page."""
 
     @override
     def post(self) -> None:
@@ -183,6 +184,8 @@ class LogoutHandler(tornado.web.RequestHandler):
         store: AuthStore = self.application.settings["auth_store"]
         if auth.session_secret is not None:
             store.end_session(auth.session_secret)
+            sockets: UiSockets = self.application.settings["ui_sockets"]
+            sockets.close_session(auth.session_secret)
         clear_session_cookie(self)
         self.redirect("/auth/login")
 

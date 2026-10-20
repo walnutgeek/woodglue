@@ -103,7 +103,11 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
     # Resolve auth_db (woodglue-specific)
     storage.auth_db = resolve_file(data_dir, storage.auth_db, "auth.db")
     for entry in config.uis.values():
-        entry.path = str(data_dir / entry.path)
+        if entry.path is not None:
+            entry.path = str(data_dir / entry.path)
+        if entry.app is not None:
+            entry.app = str(data_dir / entry.app)
+        entry.cwd = str(data_dir / entry.cwd) if entry.cwd else str(data_dir)
 
 
 def load_namespaces(
@@ -204,6 +208,11 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
             for name in triggers.left_disabled:
                 print(f"  Trigger '{name}' left disabled in '{prefix}'")
 
+    from woodglue.apps.ui_process import UiProcesses
+
+    api_host = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    ui_processes = UiProcesses(config.uis, f"http://{api_host}:{port}")
+
     # Always mount the system namespace (introspection + engine facade)
     from woodglue.apps.system_api import build_system_namespace
 
@@ -213,6 +222,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
         auth_store,
         uis=config.uis,
         console=config.ui.enabled,
+        ui_processes=ui_processes,
     )
     system_entry = NamespaceEntry(gref="builtin:system", expose_api=True)
     namespaces["system"] = (system_ns, system_entry)
@@ -224,6 +234,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
         engine_registry=registry,
         mounts=mounts,
         auth_store=auth_store,
+        ui_processes=ui_processes,
     )
     server = app.listen(port, host)
     print(f"Woodglue listening on http://{host}:{port}")
@@ -246,6 +257,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
         print(f"Received {signal_name}, shutting down")
         server.stop()
         await registry.stop_all()
+        await ui_processes.stop_all()
         ioloop.stop()
 
     _install_shutdown_handlers(
@@ -256,9 +268,11 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     pid_path = _pid_file(data_dir)
     pid_path.write_text(str(os.getpid()))
 
-    # Start trigger managers once the IOLoop is running
+    # Start trigger managers, then UI processes, once the IOLoop is running
     if registry.has_engines():
         ioloop.add_callback(registry.start_all)
+    if ui_processes.has_processes():
+        ioloop.add_callback(ui_processes.start_all)
 
     try:
         ioloop.start()

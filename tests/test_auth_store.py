@@ -252,3 +252,42 @@ def test_disabled_person_cannot_sign_in(tmp_path: Path) -> None:
         store.sign_in_person(
             "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
         )
+
+
+def test_delegated_token_acts_as_the_session_user_and_dies_with_it(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.create_service_user("ci")
+    store.assign_role(user.id, "operator")
+    session = store.create_session(user.id)
+    delegated = store.delegate(session, "reports-ui")
+    assert store.delegate(session, "reports-ui") == delegated
+    caller = store.resolve(delegated)
+    assert caller is not None and caller.user_id == user.id
+    assert caller.can(Action.call, "billing")
+    store.end_session(session)
+    assert store.resolve(delegated) is None
+
+
+def test_delegated_token_follows_session_idle_expiry(tmp_path: Path) -> None:
+    clock = _Clock()
+    store = AuthStore(tmp_path / "auth.db", ROLES, clock=clock)
+    user = store.create_service_user("ci")
+    session = store.create_session(user.id)
+    delegated = store.delegate(session, "ui")
+    # Calls made by the UI count as use of the Session.
+    for _ in range(3):
+        clock.advance(hours=11)
+        assert store.resolve(delegated) is not None
+    assert store.resolve(session) is not None
+    clock.advance(hours=13)
+    assert store.resolve(delegated) is None
+
+
+def test_only_sessions_can_be_delegated(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.create_service_user("ci")
+    token = store.create_token(user.id, "t").secret
+    with pytest.raises(ValueError):
+        store.delegate(token, "ui")
+    with pytest.raises(ValueError):
+        store.delegate("nonsense", "ui")

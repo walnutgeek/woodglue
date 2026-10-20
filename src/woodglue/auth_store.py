@@ -14,6 +14,10 @@ A **Session** is the credential behind a browser's cookie. It ends after
 `session_idle` without use or `session_max` after creation, whichever is first;
 woodglue does not re-check with the Identity Provider in between.
 
+A **Delegated Token** lets a Process-backed UI call the API as the User viewing
+it. It belongs to one Session and one UI, carries the Session's Grants, counts
+as use of the Session, and ends with it.
+
 The built-in `admin` Service User owns the tokens that `wgl token` prints. Tokens
 from the pre-Users `tokens` table are migrated to it on first open, so existing
 scripts keep working.
@@ -38,7 +42,7 @@ from woodglue.access import ADMIN_ROLE, Caller, Grant
 logger = logging.getLogger(__name__)
 
 ADMIN_USER_ID = "admin"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 MANUAL = "manual"
 """Source of Role assignments made by an admin, as opposed to synced at sign-in."""
@@ -58,6 +62,7 @@ class UserKind(StrEnum):
 class CredentialKind(StrEnum):
     token = "token"
     session = "session"
+    delegated = "delegated"
 
 
 class User(BaseModel):
@@ -153,6 +158,11 @@ class AuthStore:
             conn.execute("ALTER TABLE credentials ADD COLUMN last_used_at TEXT")
         if version < 3:
             self._upgrade_to_v3(conn)
+        if version < 4:
+            conn.execute(
+                "ALTER TABLE credentials "
+                + "ADD COLUMN parent_id TEXT REFERENCES credentials(id) ON DELETE CASCADE"
+            )
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def _create_v1(self, conn: sqlite3.Connection) -> None:
@@ -538,6 +548,73 @@ class AuthStore:
             )
         return secret
 
+    def delegate(self, session_secret: str, ui_name: str) -> str:
+        """
+        The Delegated Token for a UI acting on behalf of a Session, created on
+        first use. Raises `ValueError` unless `session_secret` is a live Session.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM credentials WHERE secret = ? AND kind = ?",
+                (session_secret, CredentialKind.session),
+            ).fetchone()
+            if row is None or not self._session_alive(conn, row, self.clock()):
+                raise ValueError("Only a live Session can be delegated")
+            existing = conn.execute(
+                "SELECT secret FROM credentials WHERE parent_id = ? AND kind = ? AND name = ?",
+                (row["id"], CredentialKind.delegated, ui_name),
+            ).fetchone()
+            if existing is not None:
+                return existing["secret"]
+            secret = secrets.token_urlsafe(32)
+            conn.execute(
+                "INSERT INTO credentials "
+                + "(id, secret, kind, user_id, name, created_at, parent_id) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    _new_id("dlg"),
+                    secret,
+                    CredentialKind.delegated,
+                    row["user_id"],
+                    ui_name,
+                    self.clock().isoformat(),
+                    row["id"],
+                ),
+            )
+            return secret
+
+    def _session_alive(self, conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> bool:
+        """
+        Apply a Session's limits, deleting it (and its Delegated Tokens) once it
+        has expired, and record its use.
+        """
+        expires_at = _parse_time(row["expires_at"])
+        last_used = _parse_time(row["last_used_at"]) or now
+        if (expires_at is not None and expires_at <= now) or last_used + self.session_idle <= now:
+            conn.execute("DELETE FROM credentials WHERE id = ?", (row["id"],))
+            return False
+        if now - last_used >= _TOUCH_INTERVAL:
+            conn.execute(
+                "UPDATE credentials SET last_used_at = ? WHERE id = ?",
+                (now.isoformat(), row["id"]),
+            )
+        return True
+
+    def session_is_live(self, secret: str) -> bool:
+        """Whether a Session is still valid, without counting this check as use."""
+        now = self.clock()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT c.expires_at, c.last_used_at, u.disabled FROM credentials c "
+                + "JOIN users u ON u.id = c.user_id WHERE c.secret = ? AND c.kind = ?",
+                (secret, CredentialKind.session),
+            ).fetchone()
+        if row is None or row["disabled"]:
+            return False
+        expires_at = _parse_time(row["expires_at"])
+        last_used = _parse_time(row["last_used_at"]) or now
+        return (expires_at is None or expires_at > now) and last_used + self.session_idle > now
+
     def end_session(self, secret: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -550,12 +627,13 @@ class AuthStore:
     def resolve(self, secret: str) -> Caller | None:
         """
         Return the Caller for a credential secret, or `None` if it is not valid
-        now. Resolving a Session counts as using it.
+        now. Resolving a Session, or a Delegated Token of one, counts as using
+        the Session.
         """
         now = self.clock()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT c.id AS cid, c.kind AS ckind, c.grants, c.expires_at, c.last_used_at, "
+                "SELECT c.id AS cid, c.kind AS ckind, c.grants, c.expires_at, c.parent_id, "
                 + "u.* FROM credentials c JOIN users u ON u.id = c.user_id WHERE c.secret = ?",
                 (secret,),
             ).fetchone()
@@ -564,16 +642,15 @@ class AuthStore:
             expires_at = _parse_time(row["expires_at"])
             if expires_at is not None and expires_at <= now:
                 return None
-            if row["ckind"] == CredentialKind.session:
-                last_used = _parse_time(row["last_used_at"]) or now
-                if last_used + self.session_idle <= now:
-                    conn.execute("DELETE FROM credentials WHERE id = ?", (row["cid"],))
+            if row["ckind"] in (CredentialKind.session, CredentialKind.delegated):
+                session_id = (
+                    row["parent_id"] if row["ckind"] == CredentialKind.delegated else row["cid"]
+                )
+                session = conn.execute(
+                    "SELECT * FROM credentials WHERE id = ?", (session_id,)
+                ).fetchone()
+                if session is None or not self._session_alive(conn, session, now):
                     return None
-                if now - last_used >= _TOUCH_INTERVAL:
-                    conn.execute(
-                        "UPDATE credentials SET last_used_at = ? WHERE id = ?",
-                        (now.isoformat(), row["cid"]),
-                    )
             user = self._user_from_row(conn, row)
         return self._caller(user, row["cid"], row["grants"])
 

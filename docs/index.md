@@ -27,6 +27,7 @@ Woodglue is the HTTP layer; lythonic provides the core runtime
 - **JSON-RPC 2.0 with multi-namespace routing** — register Python functions, call them over HTTP with dot-prefixed namespace routing
 - **Auto-generated docs** — `llms.txt` index, per-method markdown, OpenAPI 3.0.3 spec
 - **Built-in UI** — browser-based API browsing, trigger management, DAG visualization
+- **Project UIs** — host your own single-page app or Streamlit app next to the Console, signed in as the same User
 - **Users, Roles, and Grants** — per-namespace authorization with Personal Access Tokens
 - **Typed async client** — auto-resolved return types via `x-global-ref`
 - **YAML-driven namespace configuration** — declarative setup with per-method tags and explicit gref/file/entries fields

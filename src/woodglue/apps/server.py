@@ -13,6 +13,8 @@ from lythonic.compose.namespace import Namespace
 from woodglue.apps.identity_providers import PendingSignIns, ProviderClient, make_clients
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
+from woodglue.apps.ui_process import UiProcesses
+from woodglue.apps.ui_proxy import UiProxyHandler, UiSockets
 from woodglue.apps.uis import UiStaticHandler, ui_path
 from woodglue.auth_store import AuthStore
 from woodglue.config import NamespaceEntry, WoodglueConfig
@@ -28,6 +30,7 @@ def create_app(
     engine_registry: EngineRegistry | None = None,
     mounts: dict[str, MountContext] | None = None,
     auth_store: AuthStore | None = None,
+    ui_processes: UiProcesses | None = None,
 ) -> tornado.web.Application:
     """
     Build a Tornado Application with JSON-RPC and optional docs/UI routes.
@@ -38,7 +41,8 @@ def create_app(
 
     With auth enabled, `auth_store` defaults to one opened on
     `config.storage.auth_db`; pass it to share the instance the system
-    namespace uses.
+    namespace uses. `ui_processes` supervises Process-backed UIs; the caller
+    starts and stops it (see `wgl start`).
     """
     if config is None:
         config = WoodglueConfig(namespaces={})
@@ -89,10 +93,18 @@ def create_app(
                 )
             )
 
+    if ui_processes is None:
+        ui_processes = UiProcesses(config.uis, "")
     for name, entry in config.uis.items():
+        handlers.append((rf"/ui/{name}", tornado.web.RedirectHandler, {"url": f"/ui/{name}/"}))
+        if not entry.is_static:
+            handlers.append(
+                (rf"/ui/{name}/.*", UiProxyHandler, {"ui_name": name, "public": entry.public})
+            )
+            continue
+        assert entry.path is not None
         if not Path(entry.path).is_dir():
             logger.warning("UI '%s': directory %s does not exist", name, entry.path)
-        handlers.append((rf"/ui/{name}", tornado.web.RedirectHandler, {"url": f"/ui/{name}/"}))
         handlers.append(
             (
                 rf"/ui/{name}/(.*)",
@@ -121,6 +133,8 @@ def create_app(
         auth_store=auth_store,
         login_providers=login_providers,
         pending_sign_ins=PendingSignIns(),
+        ui_processes=ui_processes,
+        ui_sockets=UiSockets(),
         engine_registry=engine_registry,
         mounts=mounts or {},
     )

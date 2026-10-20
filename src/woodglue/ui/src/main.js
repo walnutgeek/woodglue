@@ -175,7 +175,8 @@ function renderSidebar() {
   if (state.uis.length) {
     html += '<div class="nav-section-label">UIs</div>';
     for (const ui of state.uis) {
-      html += `<a class="ui-link" href="${escapeHtml(ui.path)}">${escapeHtml(ui.label)}</a>`;
+      const state = ui.state && ui.state !== "ready" ? ` <span class="ui-state">${escapeHtml(ui.state)}</span>` : "";
+      html += `<a class="ui-link" href="${escapeHtml(ui.path)}">${escapeHtml(ui.label)}${state}</a>`;
     }
   }
   html += renderAccountSection();

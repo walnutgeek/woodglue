@@ -65,11 +65,13 @@ nav:
   - How-to:
       - Identity Providers: how-to/identity-providers.md
       - Host a project UI: how-to/static-ui.md
+      - Host a Streamlit app: how-to/streamlit-ui.md
   - API Reference:
       - woodglue.config: reference/config.md
       - woodglue.access: reference/access.md
       - woodglue.auth_store: reference/auth-store.md
       - woodglue.client: reference/client.md
+      - woodglue.ui_support: reference/ui-support.md
       - woodglue.cli: reference/cli.md
       - woodglue.log_setup: reference/log-setup.md
       - apps:
@@ -80,6 +82,8 @@ nav:
           - woodglue.apps.auth_pages: reference/apps-auth-pages.md
           - woodglue.apps.identity_providers: reference/apps-identity-providers.md
           - woodglue.apps.uis: reference/apps-uis.md
+          - woodglue.apps.ui_process: reference/apps-ui-process.md
+          - woodglue.apps.ui_proxy: reference/apps-ui-proxy.md
       - woodglue.hello: reference/hello.md
   - UI Decks: decks/index.md
   - Release Notes:

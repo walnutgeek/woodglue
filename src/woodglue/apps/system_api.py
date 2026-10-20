@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from woodglue.access import Action, Caller, check, current_caller
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
+from woodglue.apps.ui_process import UiProcesses, UiState
 from woodglue.apps.uis import CONSOLE, ui_path
 from woodglue.auth_store import AuthStore, IssuedToken, TokenInfo, UnknownUser, User
 from woodglue.config import NamespaceEntry, UiEntry
@@ -91,6 +92,8 @@ class UiInfo(BaseModel):
     path: str
     label: str
     public: bool
+    state: UiState | None = None
+    """For a supervised Process-backed UI, whether its process is up."""
 
 
 class NamespaceInfo(BaseModel):
@@ -147,6 +150,7 @@ def build_system_namespace(
     auth_store: AuthStore | None = None,
     uis: Mapping[str, UiEntry] | None = None,
     console: bool = True,
+    ui_processes: UiProcesses | None = None,
 ) -> Namespace:
     """
     Build the system Namespace. `auth_store` is `None` when auth is disabled;
@@ -346,7 +350,10 @@ def build_system_namespace(
         for name in sorted(uis or {}):
             entry = (uis or {})[name]
             label = entry.label or name.replace("-", " ").replace("_", " ").title()
-            result.append(UiInfo(name=name, path=ui_path(name), label=label, public=entry.public))
+            state = ui_processes.state(name) if ui_processes else None
+            result.append(
+                UiInfo(name=name, path=ui_path(name), label=label, public=entry.public, state=state)
+            )
         if caller is None:
             return result
         return [u for u in result if u.public or caller.can(Action.view, f"ui:{u.name}")]

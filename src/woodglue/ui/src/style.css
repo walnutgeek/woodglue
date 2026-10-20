@@ -939,3 +939,8 @@ body {
   color: var(--accent);
   background: var(--bg-hover);
 }
+
+.ui-state {
+  color: var(--warning);
+  font-size: 11px;
+}

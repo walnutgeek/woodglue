@@ -75,21 +75,65 @@ class UiConfig(BaseModel):
     default: str = "console"
 
 
+class UiKind(StrEnum):
+    streamlit = "streamlit"
+
+
 class UiEntry(BaseModel):
     """
-    A project UI served at `/ui/<name>/`, next to the Console.
+    A project UI served at `/ui/<name>/`, next to the Console. Exactly one of
+    these says what it is:
 
-    A Static UI is a directory of built files (`path`, relative to the data
-    dir), such as a single-page app built with `base: "/ui/<name>/"`. With
-    `spa_fallback`, paths without a file extension that match no file return
-    `index.html`, so client-side routes survive a reload; a missing `.js` file
-    is still a 404. Opening a UI needs `view` on `ui:<name>` unless `public`.
+    - `path`: a Static UI, a directory of built files (relative to the data
+      dir), such as a single-page app built with `base: "/ui/<name>/"`. With
+      `spa_fallback`, paths without a file extension that match no file return
+      `index.html`, so client-side routes survive a reload; a missing `.js`
+      file is still a 404.
+    - `kind: streamlit` with `app`: a Streamlit script that woodglue runs and
+      proxies to (see `woodglue.apps.ui_process`).
+    - `command`: any other server that woodglue runs and proxies to. Its
+      arguments may use `{port}` (a free loopback port woodglue picks) and
+      `{base_path}` (`/ui/<name>`); the server must listen on that port and
+      serve under that path.
+    - `upstream`: the URL of a server run elsewhere, proxied to as is. It must
+      serve under `/ui/<name>` too.
+
+    A Process-backed UI (all but `path`) gets the viewing User's identity in
+    request headers (see `woodglue.ui_support`). `ready_path` is what woodglue
+    polls until the process answers; `dev` turns on the framework's reload.
+
+    Opening any UI needs `view` on `ui:<name>` unless `public`.
     """
 
-    path: str
+    path: str | None = None
+    kind: UiKind | None = None
+    app: str | None = None
+    command: list[str] | None = None
+    upstream: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] = {}
+    ready_path: str | None = None
+    dev: bool = False
     label: str | None = None
     spa_fallback: bool = True
     public: bool = False
+
+    @model_validator(mode="after")
+    def _one_source(self) -> UiEntry:
+        sources = [self.path, self.kind, self.command, self.upstream]
+        if sum(s is not None for s in sources) != 1:
+            raise ValueError("A UI needs exactly one of path, kind, command, or upstream")
+        if self.kind == UiKind.streamlit and not self.app:
+            raise ValueError("kind: streamlit needs app, the path of the Streamlit script")
+        return self
+
+    @property
+    def is_static(self) -> bool:
+        return self.path is not None
+
+    @property
+    def is_supervised(self) -> bool:
+        return self.kind is not None or self.command is not None
 
 
 class NamespaceEntry(BaseModel):
