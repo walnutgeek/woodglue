@@ -16,6 +16,7 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `fire_trigger`, `activate_trigger`, and `deactivate_trigger` need `trigger`.
 - `list_uis` shows the UIs the Caller may open (`view` on `ui:<name>`, or
   public ones).
+- `describe_initiators` names the Users behind runs' `initiated_by`.
 - `whoami` and a User's own tokens (`create_token`, `list_tokens`,
   `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
   a Session can create tokens (see `Caller.may_issue_credentials`).
@@ -411,6 +412,22 @@ def build_system_namespace(
             raise RpcError(INVALID_PARAMS, f"No token {token_id!r}")
         return _store().revoke_token(token_id)
 
+    def describe_initiators(initiators: list[str]) -> dict[str, str]:
+        """
+        Display names for `initiated_by` values of runs and trigger changes:
+        `Name <email>` for a User id, anything else (`scheduler`, `cli:<user>`,
+        an unknown id) as is.
+        """
+        result = {i: i for i in initiators}
+        if auth_store is None:
+            return result
+        users = {u.id: u for u in auth_store.list_users()}
+        for initiator in initiators:
+            user = users.get(initiator)
+            if user is not None:
+                result[initiator] = f"{user.name} <{user.email}>" if user.email else user.name
+        return result
+
     # -- User management (admin) --
 
     def list_users() -> list[User]:
@@ -458,6 +475,7 @@ def build_system_namespace(
         (create_token, "create_token"),
         (list_tokens, "list_tokens"),
         (revoke_token, "revoke_token"),
+        (describe_initiators, "describe_initiators"),
         (list_users, "list_users"),
         (create_service_user, "create_service_user"),
         (disable_user, "disable_user"),

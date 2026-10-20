@@ -1099,16 +1099,43 @@ wheels = [
 
 [[package]]
 name = "lythonic"
-version = "0.0.26"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../lythonic" }
 dependencies = [
     { name = "croniter" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/52/5397fb9e28b0bb9adf81cf3b455f7dcd9052fab6cb6be70b8d0adf6ff31c/lythonic-0.0.26.tar.gz", hash = "sha256:f54475850211e100ab200aa50328e01766302ac0dc6c15299d8fd69f1c909b8b", size = 291461, upload-time = "2026-10-01T02:49:42.005Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/79/8f7be6c0d4afb9dfa341adc876a86ebaefa0f0556452b3ec499f3f1dff41/lythonic-0.0.26-py3-none-any.whl", hash = "sha256:852f156360fae069c34b24c050f6f9ff4e6774eeece2a2b19597f26aceefce27", size = 98633, upload-time = "2026-10-01T02:49:40.61Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "croniter", specifier = ">=6.2.2" },
+    { name = "numpy", marker = "extra == 'numpy'" },
+    { name = "pandas", marker = "extra == 'pandas'" },
+    { name = "polars", marker = "extra == 'polars'" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pydantic" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
+provides-extras = ["numpy", "pandas", "polars", "pyarrow"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright", specifier = ">=1.32.1" },
+    { name = "codespell", specifier = ">=2.4.1" },
+    { name = "coverage", specifier = ">=7.6.7" },
+    { name = "funlog", specifier = ">=0.2.1" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", specifier = ">=1.2.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "pytest-sugar", specifier = ">=1.0.0" },
+    { name = "rich", specifier = ">=14.0.0" },
+    { name = "ruff", specifier = ">=0.14.2" },
+]
+docs = [
+    { name = "markdown-pycon", specifier = ">=1.0.1" },
+    { name = "mkdocs", specifier = ">=1.6" },
+    { name = "mkdocs-material", specifier = ">=9.5" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27" },
 ]
 
 [[package]]
@@ -2601,7 +2628,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography" },
-    { name = "lythonic" },
+    { name = "lythonic", editable = "../lythonic" },
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },

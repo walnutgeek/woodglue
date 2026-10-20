@@ -12,6 +12,8 @@ Every request runs as a `woodglue.access.Caller` (see `woodglue.apps.authn`):
 - A namespace the Caller cannot see is reported as `-32601 "Method not found"`,
   so its existence does not leak.
 - A visible namespace without a `call` Grant: `-32003 "Forbidden: ..."`.
+- DAG runs a call starts, and trigger changes it makes, record the Caller's
+  User id as `initiated_by` (`anonymous` when auth is disabled).
 - `system.*` methods check their own Grants (see `woodglue.apps.system_api`)
   and report a missing one as `-32003` too.
 
@@ -36,6 +38,7 @@ import logging
 from typing import Any, overload
 
 import tornado.web
+from lythonic.compose.dag_provenance import initiated_by
 from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
@@ -289,11 +292,12 @@ class JsonRpcHandler(tornado.web.RequestHandler):
         token = current_mount.set(mount) if mount else None
         caller_token = current_caller.set(self.caller)
 
-        # Call the method
+        # Call the method, attributing any runs it starts to the Caller
         try:
-            result = node(**kwargs)
-            if inspect.isawaitable(result):
-                result = await result
+            with initiated_by(self.caller.user_id or "anonymous" if self.caller else None):
+                result = node(**kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
         except AccessDenied as exc:
             logger.warning("Access denied calling %s: %s", method, exc)
             self.write(_error_response(FORBIDDEN, str(exc), request_id))

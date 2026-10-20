@@ -121,6 +121,7 @@ def test_build_system_namespace_has_all_methods() -> None:
         "create_token",
         "list_tokens",
         "revoke_token",
+        "describe_initiators",
         "list_users",
         "create_service_user",
         "disable_user",

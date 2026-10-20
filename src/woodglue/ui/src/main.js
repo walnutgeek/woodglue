@@ -50,6 +50,7 @@ const state = {
   view: "home",       // home | namespace | run | method | tokens
   me: null,           // system.whoami result
   uis: [],            // project UIs from system.list_uis, without the Console
+  initiators: {},     // initiated_by value -> display name, from system.describe_initiators
   namespaces: {},     // { prefix: { expose_api, run_engine, method_count, has_cache, methods: [...] } }
   selectedNs: null,
   selectedRun: null,
@@ -86,7 +87,28 @@ async function loadAllData() {
   state.namespaces = nsMap;
 }
 
+async function describeInitiators(runs) {
+  const unknown = [...new Set(runs.map((r) => r.initiated_by).filter((i) => i && !(i in state.initiators)))];
+  if (!unknown.length) return;
+  try {
+    Object.assign(state.initiators, await rpcCall("system.describe_initiators", { initiators: unknown }));
+  } catch {
+    // Names are a convenience; runs still show the raw ids.
+  }
+}
+
+function initiatorLabel(run) {
+  if (!run.initiated_by) return "";
+  return escapeHtml(state.initiators[run.initiated_by] || run.initiated_by);
+}
+
 async function loadRuns(prefix, statusFilter = null) {
+  const runs = await loadRunsRaw(prefix, statusFilter);
+  await describeInitiators(runs);
+  return runs;
+}
+
+async function loadRunsRaw(prefix, statusFilter = null) {
   try {
     if (statusFilter === "running") {
       return (await rpcCall("system.active_runs", { namespace: prefix })) || [];
@@ -101,7 +123,9 @@ async function loadRuns(prefix, statusFilter = null) {
 
 async function loadRunDetail(prefix, runId) {
   try {
-    return await rpcCall("system.inspect_run", { namespace: prefix, run_id: runId });
+    const run = await rpcCall("system.inspect_run", { namespace: prefix, run_id: runId });
+    if (run) await describeInitiators([run]);
+    return run;
   } catch {
     return null;
   }
@@ -446,6 +470,7 @@ function renderRunRow(run) {
       <span class="run-status ${run.status}"></span>
       <span class="run-nsref">${run.dag_nsref || run.run_id}</span>
       <span class="run-id">${run.run_id.substring(0, 8)}</span>
+      <span class="run-by" title="Started by">${initiatorLabel(run)}</span>
       <span class="run-time">${timeStr}</span>
       <span class="run-duration">${elapsed}</span>
     </div>`;
@@ -475,6 +500,7 @@ function renderDagView(el) {
           <span>ID: ${run.run_id.substring(0, 12)}</span>
           <span>${formatTime(run.started_at)}</span>
           <span>${elapsed}</span>
+          ${run.initiated_by ? `<span>by ${initiatorLabel(run)}</span>` : ""}
         </div>
       </div>
       <div class="dag-legend">

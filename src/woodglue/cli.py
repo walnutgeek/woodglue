@@ -338,8 +338,12 @@ def run(ctx: RunContext, nsref: str) -> None:  # pyright: ignore[reportUnusedPar
             result = await result
         print(json.dumps(result, indent=2, default=str))
 
-    # asyncio.run copies the current context, so the node sees the mount
-    with MountContext(node_prefix, data_dir).activate():
+    import getpass
+
+    from lythonic.compose.dag_provenance import initiated_by
+
+    # asyncio.run copies the current context, so the node sees the mount and initiator
+    with MountContext(node_prefix, data_dir).activate(), initiated_by(f"cli:{getpass.getuser()}"):
         asyncio.run(_run())
 
 
