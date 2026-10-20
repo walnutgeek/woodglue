@@ -10,6 +10,7 @@ from typing import Any
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
+from woodglue.apps.auth_pages import CliCodes
 from woodglue.apps.identity_providers import (
     PendingSignIns,
     ProviderClient,
@@ -74,6 +75,8 @@ def create_app(
     login_providers: Mapping[str, ProviderClient] = {}
     if auth_store is not None:
         from woodglue.apps.auth_pages import (
+            CliAuthorizeHandler,
+            CliTokenHandler,
             LoginHandler,
             LogoutHandler,
             SignInCallbackHandler,
@@ -86,6 +89,8 @@ def create_app(
         handlers.append((r"/auth/start/([^/]+)", StartSignInHandler))
         handlers.append((r"/auth/callback/([^/]+)", SignInCallbackHandler))
         handlers.append((r"/auth/verify", VerifyHandler))
+        handlers.append((r"/auth/cli", CliAuthorizeHandler))
+        handlers.append((r"/auth/cli/token", CliTokenHandler))
 
     if config.ui.enabled:
         console_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
@@ -140,6 +145,7 @@ def create_app(
         login_providers=login_providers,
         trusted_proxies=make_trusted_proxies(config.auth.providers) if auth_store else [],
         pending_sign_ins=PendingSignIns(),
+        cli_codes=CliCodes(),
         ui_processes=ui_processes,
         ui_sockets=UiSockets(),
         engine_registry=engine_registry,

@@ -3,6 +3,10 @@ Async JSON-RPC 2.0 client for woodglue servers.
 
 `WoodglueClient` makes typed RPC calls, optionally resolving return types
 from `x-global-ref` in the OpenAPI spec. Uses Tornado's `AsyncHTTPClient`.
+
+The bearer token is, in order: `token`; the admin token of a local server's
+`data_dir`; or the token `wgl login` stored for `base_url`
+(see `woodglue.cli_login`).
 """
 
 from __future__ import annotations
@@ -65,7 +69,9 @@ class WoodglueClient:
         elif data_dir is not None:
             self._token = _local_admin_token(data_dir / "auth.db")
         else:
-            self._token = None
+            from woodglue.cli_login import stored_token
+
+            self._token = stored_token(base_url)
 
     async def load_spec(self, strict: bool = False) -> None:
         """

@@ -9,7 +9,13 @@ Provider, and always a form for a Personal Access Token, e.g. the output of
 `wgl token`. A narrowed token is refused, since the Session it would start
 would carry all of the User's Grants.
 
-Both pages accept a `next` path to return to; anything that is not a path on
+`/auth/cli` and `/auth/cli/token` let `wgl login` get a Personal Access Token
+for the signed-in User: the browser approves on the server's page, which hands
+a one-time code to the CLI's loopback address; the CLI exchanges the code,
+with the PKCE verifier only it knows, for the token (see `woodglue.cli_login`).
+The token itself never appears in a URL.
+
+The login pages accept a `next` path to return to; anything that is not a path on
 this server is replaced by `/`, so the login page cannot be used as an open
 redirect.
 """
@@ -17,14 +23,19 @@ redirect.
 from __future__ import annotations
 
 import html
+import json
 import logging
+import secrets
+import time
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from textwrap import dedent
-from urllib.parse import quote
+from urllib.parse import quote, urlencode, urlsplit
 
 import tornado.web
 from typing_extensions import override
 
+from woodglue.access import Caller
 from woodglue.apps.authn import (
     authenticate,
     clear_session_cookie,
@@ -37,6 +48,7 @@ from woodglue.apps.identity_providers import (
     ProviderClient,
     SignInError,
     admits,
+    pkce_challenge,
     role_sources,
 )
 from woodglue.apps.ui_proxy import UiSockets
@@ -289,3 +301,160 @@ class SignInCallbackHandler(tornado.web.RequestHandler):
     def _fail(self, status: int, pending: PendingSignIn, error: str) -> None:
         self.set_status(status)
         self.write(_login_page(self, pending.next_url, error))
+
+
+_CLI_CODE_TTL_SECONDS = 120
+
+_CONFIRM_PAGE = dedent("""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Authorize the woodglue CLI</title>
+      <style>
+        :root {{ color-scheme: light dark; }}
+        body {{ margin: 0; min-height: 100vh; display: grid; place-items: center;
+               font: 15px/1.5 system-ui, sans-serif; }}
+        main {{ width: min(420px, calc(100vw - 32px)); padding: 28px;
+               border: 1px solid #8884; border-radius: 10px; }}
+        button {{ margin-top: 12px; width: 100%; padding: 10px; border: 0; border-radius: 6px;
+                 background: #b4632d; color: #fff; font: inherit; cursor: pointer; }}
+      </style>
+    </head>
+    <body>
+      <main>
+        <h1>Authorize the woodglue CLI</h1>
+        <p>Create a Personal Access Token named <b>{name}</b> for <b>{user}</b> and hand it
+           to the command line on this computer?</p>
+        <form method="post" action="/auth/cli">
+          {fields}
+          <button type="submit">Authorize</button>
+        </form>
+      </main>
+    </body>
+    </html>
+    """).strip()
+
+
+def is_loopback_redirect(uri: str) -> bool:
+    """
+    Whether `uri` points at a CLI listening on this computer.
+
+    >>> is_loopback_redirect("http://127.0.0.1:53111/cb"), is_loopback_redirect("http://localhost:9/")
+    (True, True)
+    >>> is_loopback_redirect("http://127.0.0.1/cb"), is_loopback_redirect("https://evil.example:9/")
+    (False, False)
+    """
+    parts = urlsplit(uri)
+    return (
+        parts.scheme == "http"
+        and parts.hostname in ("127.0.0.1", "localhost", "::1")
+        and parts.port is not None
+    )
+
+
+@dataclass
+class _CliCode:
+    user_id: str
+    name: str
+    challenge: str
+    created: float = field(default_factory=time.monotonic)
+
+
+class CliCodes:
+    """One-time codes handed to a CLI's loopback address, by code."""
+
+    _codes: dict[str, _CliCode]
+
+    def __init__(self) -> None:
+        self._codes = {}
+
+    def add(self, user_id: str, name: str, challenge: str) -> str:
+        cutoff = time.monotonic() - _CLI_CODE_TTL_SECONDS
+        self._codes = {c: v for c, v in self._codes.items() if v.created >= cutoff}
+        code = secrets.token_urlsafe(24)
+        self._codes[code] = _CliCode(user_id, name, challenge)
+        return code
+
+    def redeem(self, code: str, verifier: str) -> _CliCode | None:
+        entry = self._codes.pop(code, None)
+        if entry is None or time.monotonic() - entry.created > _CLI_CODE_TTL_SECONDS:
+            return None
+        if not secrets.compare_digest(pkce_challenge(verifier), entry.challenge):
+            return None
+        return entry
+
+
+class CliAuthorizeHandler(tornado.web.RequestHandler):
+    """GET shows the approval page; POST issues a one-time code to the CLI's loopback address."""
+
+    def _params(self) -> dict[str, str]:
+        params = {
+            k: self.get_argument(k, "") for k in ("redirect_uri", "state", "code_challenge", "name")
+        }
+        if not is_loopback_redirect(params["redirect_uri"]) or not params["code_challenge"]:
+            raise tornado.web.HTTPError(400, "redirect_uri must be a loopback address with a port")
+        params["name"] = params["name"].strip() or "wgl"
+        return params
+
+    def _caller(self) -> Caller | None:
+        caller = authenticate(self).caller
+        if caller is None:
+            self.redirect(f"/auth/login?next={quote(self.request.uri or '/', safe='')}")
+        elif caller.user_id is None:
+            raise tornado.web.HTTPError(400, "Auth is disabled; the CLI needs no token")
+        return caller
+
+    @override
+    def get(self) -> None:
+        params = self._params()
+        caller = self._caller()
+        if caller is None:
+            return
+        fields = "".join(
+            f'<input type="hidden" name="{k}" value="{html.escape(v, quote=True)}">'
+            for k, v in params.items()
+        )
+        self.write(
+            _CONFIRM_PAGE.format(
+                name=html.escape(params["name"]),
+                user=html.escape(caller.email or caller.name),
+                fields=fields,
+            )
+        )
+
+    @override
+    def post(self) -> None:
+        if not is_same_origin(self.request):
+            raise tornado.web.HTTPError(403, "Cross-site authorization rejected")
+        params = self._params()
+        caller = self._caller()
+        if caller is None:
+            return
+        assert caller.user_id is not None
+        codes: CliCodes = self.application.settings["cli_codes"]
+        code = codes.add(caller.user_id, params["name"], params["code_challenge"])
+        self.redirect(
+            f"{params['redirect_uri']}?{urlencode({'code': code, 'state': params['state']})}"
+        )
+
+
+class CliTokenHandler(tornado.web.RequestHandler):
+    """POST `{code, code_verifier}`: the Personal Access Token for an approved code."""
+
+    @override
+    def post(self) -> None:
+        try:
+            body = json.loads(self.request.body)
+            code, verifier = str(body["code"]), str(body["code_verifier"])
+        except (ValueError, KeyError, TypeError):
+            raise tornado.web.HTTPError(400, "Expected JSON with code and code_verifier") from None
+        codes: CliCodes = self.application.settings["cli_codes"]
+        entry = codes.redeem(code, verifier)
+        if entry is None:
+            raise tornado.web.HTTPError(400, "Unknown, expired, or already used code")
+        store: AuthStore = self.application.settings["auth_store"]
+        issued = store.create_token(entry.user_id, entry.name)
+        logger.info("Issued CLI token %s to %s", issued.id, entry.user_id)
+        self.write({"token": issued.secret, "id": issued.id})

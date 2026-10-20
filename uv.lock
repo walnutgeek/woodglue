@@ -2332,6 +2332,15 @@ wheels = [
 ]
 
 [[package]]
+name = "strif"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/7e/5822171da928d7b0a398f96ae5ec393ddab4115198516a073718fc59d7e8/strif-3.1.0.tar.gz", hash = "sha256:6ea9f62d5d19013db170a7efab20b1b08153604acc94bc9d64bc18543d96c3ad", size = 40127, upload-time = "2026-05-23T21:03:03.873Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/83/6dd4e9ef8717dab7539863ad7728ce64611a41b95b238aa7846460016702/strif-3.1.0-py3-none-any.whl", hash = "sha256:9337b67a7019cee445ac15f96dd2c7f8fda9a5166a1cfb95e695e33200db00d3", size = 20171, upload-time = "2026-05-23T21:03:02.978Z" },
+]
+
+[[package]]
 name = "termcolor"
 version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2562,6 +2571,7 @@ dependencies = [
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "strif" },
     { name = "tornado" },
 ]
 
@@ -2595,6 +2605,7 @@ requires-dist = [
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },
+    { name = "strif", specifier = ">=3.1.0" },
     { name = "tornado" },
 ]
 

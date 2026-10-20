@@ -75,6 +75,7 @@ nav:
       - woodglue.client: reference/client.md
       - woodglue.ui_support: reference/ui-support.md
       - woodglue.cli: reference/cli.md
+      - woodglue.cli_login: reference/cli-login.md
       - woodglue.log_setup: reference/log-setup.md
       - apps:
           - woodglue.apps.server: reference/apps-server.md

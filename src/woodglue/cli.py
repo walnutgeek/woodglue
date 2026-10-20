@@ -18,6 +18,8 @@ Commands:
         tokens <user>              List a User's tokens (never the secrets)
         revoke <token_id>
     wgl caddy config <site>   Print a Caddyfile serving this instance at <site>
+    wgl login --server=URL    Get a Personal Access Token for a remote server via the browser
+    wgl logout --server=URL   Revoke and forget that token
 
 `wgl token` prints the tokens of the built-in `admin` Service User, which holds
 every Grant. `wgl start` never prints a token, since its output may be captured
@@ -483,6 +485,33 @@ def user_revoke(ctx: RunContext, token_id: str) -> None:
     """Revoke a Personal Access Token"""
     if not _auth_store(ctx).revoke_token(token_id):
         sys.exit(f"No token {token_id!r}")
+
+
+@main_at.actions.wrap
+def login(ctx: RunContext, server: str = "", name: str = "") -> None:  # pyright: ignore[reportUnusedParameter]
+    """Get a Personal Access Token for --server through the browser and store it"""
+    import socket
+
+    from woodglue.cli_login import credentials_path
+    from woodglue.cli_login import login as do_login
+
+    if not server:
+        sys.exit("Give the server, e.g. wgl login --server=https://wg.example.com")
+    try:
+        do_login(server, name or f"wgl on {socket.gethostname()}")
+    except RuntimeError as exc:
+        sys.exit(str(exc))
+    print(f"Signed in to {server}; token stored in {credentials_path()}")
+
+
+@main_at.actions.wrap
+def logout(ctx: RunContext, server: str = "") -> None:  # pyright: ignore[reportUnusedParameter]
+    """Revoke and forget the token stored for --server"""
+    from woodglue.cli_login import logout as do_logout
+
+    if not server:
+        sys.exit("Give the server, e.g. wgl logout --server=https://wg.example.com")
+    print("Signed out" if do_logout(server) else f"No token stored for {server}")
 
 
 class CaddyGroup(BaseModel):

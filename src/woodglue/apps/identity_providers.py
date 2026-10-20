@@ -118,7 +118,8 @@ def role_sources(
     return {f"provider:{provider.id}": sorted(roles), "admins": [ADMIN_ROLE] if is_admin else []}
 
 
-def _pkce_challenge(verifier: str) -> str:
+def pkce_challenge(verifier: str) -> str:
+    """The S256 PKCE challenge for a verifier (RFC 7636)."""
     digest = hashlib.sha256(verifier.encode()).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
@@ -214,7 +215,7 @@ class OidcClient(ProviderClient):
             "scope": " ".join(self.config.requested_scopes()),
             "state": state,
             "nonce": pending.nonce,
-            "code_challenge": _pkce_challenge(pending.verifier),
+            "code_challenge": pkce_challenge(pending.verifier),
             "code_challenge_method": "S256",
         }
         return f"{doc['authorization_endpoint']}?{urlencode(params)}"
@@ -294,7 +295,7 @@ class GitHubClient(ProviderClient):
             "redirect_uri": pending.redirect_uri,
             "scope": " ".join(self.config.requested_scopes()),
             "state": state,
-            "code_challenge": _pkce_challenge(pending.verifier),
+            "code_challenge": pkce_challenge(pending.verifier),
             "code_challenge_method": "S256",
             "allow_signup": "false",
         }

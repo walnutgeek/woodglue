@@ -44,6 +44,7 @@ dependencies = [
     "tornado",
     "cryptography",
     "pyjwt[crypto]>=2.15.1",
+    "strif>=3.1.0",
 ]
 
 

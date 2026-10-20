@@ -90,6 +90,14 @@ A Grant is `"<action> <pattern>"`, where the action is `call`, `read`,
 `trigger`, `view`, or `admin`, and the pattern is a glob over namespace names.
 See `woodglue.access` for details.
 
+For a remote server, sign in through the browser instead; the token is
+stored for that server and used by `WoodglueClient`:
+
+```bash
+wgl login --server=https://wg.example.com
+wgl logout --server=https://wg.example.com    # revoke it
+```
+
 ## Call via JSON-RPC
 
 ```bash
