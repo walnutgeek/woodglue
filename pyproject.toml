@@ -43,6 +43,7 @@ dependencies = [
     "polars",
     "tornado",
     "cryptography",
+    "pyjwt[crypto]>=2.15.1",
 ]
 
 

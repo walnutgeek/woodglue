@@ -1,9 +1,11 @@
 """
-Browser login and logout: `/auth/login` and `/auth/logout`.
+Browser login and logout: `/auth/login`, `/auth/logout`, and the Identity
+Provider round trip at `/auth/start/<provider>` and `/auth/callback/<provider>`
+(see `woodglue.apps.identity_providers`).
 
-Login exchanges a credential for a Session and sets the `wgl_session` cookie
-(see `woodglue.apps.authn`). With no Identity Provider configured, the
-credential is a Personal Access Token pasted into the form, e.g. the output of
+Every way in ends in a Session and the `wgl_session` cookie (see
+`woodglue.apps.authn`). The login page offers a button per configured Identity
+Provider, and always a form for a Personal Access Token, e.g. the output of
 `wgl token`. A narrowed token is refused, since the Session it would start
 would carry all of the User's Grants.
 
@@ -15,7 +17,10 @@ redirect.
 from __future__ import annotations
 
 import html
+import logging
+from collections.abc import Mapping
 from textwrap import dedent
+from urllib.parse import quote
 
 import tornado.web
 from typing_extensions import override
@@ -26,7 +31,20 @@ from woodglue.apps.authn import (
     is_same_origin,
     set_session_cookie,
 )
-from woodglue.auth_store import AuthStore
+from woodglue.apps.identity_providers import (
+    PendingSignIn,
+    PendingSignIns,
+    ProviderClient,
+    SignInError,
+    admits,
+    role_sources,
+)
+from woodglue.auth_store import AuthStore, UserDisabled
+from woodglue.config import AuthConfig
+
+logger = logging.getLogger(__name__)
+
+LOGIN_COOKIE = "wgl_login"
 
 
 def safe_next(target: str | None) -> str:
@@ -108,12 +126,30 @@ def render_login_page(next_url: str, error: str | None = None, providers_html: s
     )
 
 
+def _providers_html(handler: tornado.web.RequestHandler, next_url: str) -> str:
+    clients: Mapping[str, ProviderClient] = handler.application.settings.get("login_providers", {})
+    if not clients:
+        return ""
+    links = "".join(
+        f'<a href="/auth/start/{pid}?next={quote(next_url, safe="")}">'
+        + f"Continue with {html.escape(c.config.display_name)}</a>"
+        for pid, c in clients.items()
+    )
+    return f'<div class="providers">{links}</div><div class="divider">or</div>'
+
+
+def _login_page(
+    handler: tornado.web.RequestHandler, next_url: str, error: str | None = None
+) -> str:
+    return render_login_page(next_url, error, _providers_html(handler, next_url))
+
+
 class LoginHandler(tornado.web.RequestHandler):
-    """GET shows the login form; POST exchanges a token for a Session."""
+    """GET shows the login page; POST exchanges a token for a Session."""
 
     @override
     def get(self) -> None:
-        self.write(render_login_page(safe_next(self.get_argument("next", None))))
+        self.write(_login_page(self, safe_next(self.get_argument("next", None))))
 
     @override
     def post(self) -> None:
@@ -129,7 +165,7 @@ class LoginHandler(tornado.web.RequestHandler):
             error = "That token is narrowed; sign in with an unnarrowed token."
         if error is not None:
             self.set_status(401)
-            self.write(render_login_page(next_url, error))
+            self.write(_login_page(self, next_url, error))
             return
         assert caller is not None and caller.user_id is not None
         set_session_cookie(self, store.create_session(caller.user_id))
@@ -149,3 +185,104 @@ class LogoutHandler(tornado.web.RequestHandler):
             store.end_session(auth.session_secret)
         clear_session_cookie(self)
         self.redirect("/auth/login")
+
+
+def _public_base(handler: tornado.web.RequestHandler) -> str:
+    auth_config: AuthConfig = handler.application.settings["config"].auth
+    if auth_config.public_url:
+        return auth_config.public_url.rstrip("/")
+    return f"{handler.request.protocol}://{handler.request.host}"
+
+
+def _client(handler: tornado.web.RequestHandler, provider_id: str) -> ProviderClient:
+    clients: Mapping[str, ProviderClient] = handler.application.settings.get("login_providers", {})
+    client = clients.get(provider_id)
+    if client is None:
+        raise tornado.web.HTTPError(404)
+    return client
+
+
+class StartSignInHandler(tornado.web.RequestHandler):
+    """GET `/auth/start/<provider>`: send the browser to the Identity Provider."""
+
+    @override
+    async def get(self, provider_id: str) -> None:
+        client = _client(self, provider_id)
+        pending = PendingSignIn(
+            provider=provider_id,
+            next_url=safe_next(self.get_argument("next", None)),
+            redirect_uri=f"{_public_base(self)}/auth/callback/{provider_id}",
+        )
+        pending_sign_ins: PendingSignIns = self.application.settings["pending_sign_ins"]
+        state = pending_sign_ins.add(pending)
+        try:
+            url = await client.authorize_url(pending, state)
+        except SignInError as exc:
+            logger.warning("Sign-in with %s could not start: %s", provider_id, exc)
+            self.set_status(502)
+            self.write(
+                _login_page(self, pending.next_url, f"{client.config.display_name} is unavailable.")
+            )
+            return
+        # Ties the callback to this browser, so nobody can complete a sign-in they did not start.
+        self.set_cookie(
+            LOGIN_COOKIE,
+            state,
+            path="/auth/",
+            httponly=True,
+            samesite="Lax",
+            secure=self.request.protocol == "https",
+            expires_days=None,
+        )
+        self.redirect(url)
+
+
+class SignInCallbackHandler(tornado.web.RequestHandler):
+    """GET `/auth/callback/<provider>`: finish a sign-in and start a Session."""
+
+    @override
+    async def get(self, provider_id: str) -> None:
+        client = _client(self, provider_id)
+        state = self.get_argument("state", "")
+        if not state or self.get_cookie(LOGIN_COOKIE) != state:
+            raise tornado.web.HTTPError(400, "Sign-in state does not match this browser")
+        self.clear_cookie(LOGIN_COOKIE, path="/auth/")
+        pending_sign_ins: PendingSignIns = self.application.settings["pending_sign_ins"]
+        pending = pending_sign_ins.pop(state)
+        if pending is None or pending.provider != provider_id:
+            raise tornado.web.HTTPError(400, "Sign-in expired; start again")
+        name = client.config.display_name
+        if self.get_argument("error", None):
+            self._fail(401, pending, f"{name} did not sign you in: {self.get_argument('error')}")
+            return
+        try:
+            who = await client.complete(pending, self.get_argument("code", ""))
+        except SignInError as exc:
+            logger.warning("Sign-in with %s failed: %s", provider_id, exc)
+            self._fail(401, pending, f"Sign-in with {name} failed.")
+            return
+        if not admits(client.config.admit, who):
+            logger.info("Sign-in with %s refused for %s (%s)", provider_id, who.subject, who.email)
+            self._fail(403, pending, f"Your {name} account is not allowed on this server.")
+            return
+        store: AuthStore = self.application.settings["auth_store"]
+        auth_config: AuthConfig = self.application.settings["config"].auth
+        try:
+            user = store.sign_in_person(
+                provider_id,
+                who.subject,
+                email=who.email,
+                email_verified=who.email_verified,
+                name=who.name,
+                role_sources=role_sources(client.config, who, auth_config.admins),
+            )
+        except UserDisabled:
+            self._fail(403, pending, "Your account is disabled.")
+            return
+        logger.info("Signed in %s (%s) with %s", user.id, user.email, provider_id)
+        set_session_cookie(self, store.create_session(user.id))
+        self.redirect(pending.next_url)
+
+    def _fail(self, status: int, pending: PendingSignIn, error: str) -> None:
+        self.set_status(status)
+        self.write(_login_page(self, pending.next_url, error))

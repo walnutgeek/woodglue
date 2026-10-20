@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
+from woodglue.apps.identity_providers import PendingSignIns, ProviderClient, make_clients
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
 from woodglue.apps.uis import UiStaticHandler, ui_path
@@ -57,11 +59,20 @@ def create_app(
         if config.docs.openapi:
             handlers.append((r"/docs/openapi\.json", OpenApiHandler))
 
+    login_providers: Mapping[str, ProviderClient] = {}
     if auth_store is not None:
-        from woodglue.apps.auth_pages import LoginHandler, LogoutHandler
+        from woodglue.apps.auth_pages import (
+            LoginHandler,
+            LogoutHandler,
+            SignInCallbackHandler,
+            StartSignInHandler,
+        )
 
+        login_providers = make_clients(config.auth.providers)
         handlers.append((r"/auth/login", LoginHandler))
         handlers.append((r"/auth/logout", LogoutHandler))
+        handlers.append((r"/auth/start/([^/]+)", StartSignInHandler))
+        handlers.append((r"/auth/callback/([^/]+)", SignInCallbackHandler))
 
     if config.ui.enabled:
         console_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
@@ -85,6 +96,8 @@ def create_app(
         config=config,
         auth_enabled=config.auth.enabled,
         auth_store=auth_store,
+        login_providers=login_providers,
+        pending_sign_ins=PendingSignIns(),
         engine_registry=engine_registry,
         mounts=mounts or {},
     )

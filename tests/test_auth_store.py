@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from woodglue.access import Action, resolve_roles
-from woodglue.auth_store import AuthStore, UnknownUser
+from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled
 
 ROLES = resolve_roles(
     {"operator": ["call reports", "call billing", "read *"], "viewer": ["read *"]}
@@ -178,3 +178,77 @@ def test_sessions_are_not_listed_as_tokens(tmp_path: Path) -> None:
     user = store.create_service_user("ci")
     store.create_session(user.id)
     assert store.list_tokens(user.id) == []
+
+
+def test_person_sign_in_creates_then_reuses_a_user(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    first = store.sign_in_person(
+        "okta",
+        "sub-1",
+        email="ann@x.com",
+        email_verified=True,
+        name="Ann",
+        role_sources={"provider:okta": ["viewer"]},
+    )
+    again = store.sign_in_person(
+        "okta",
+        "sub-1",
+        email="ann@x.com",
+        email_verified=True,
+        name="Ann B",
+        role_sources={"provider:okta": ["viewer"]},
+    )
+    assert again.id == first.id
+    assert again.name == "Ann B"
+    assert again.roles == ["viewer"]
+    assert store.find_user("ann@x.com").id == first.id
+
+
+def test_provider_roles_resync_at_each_sign_in_but_manual_roles_stay(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.sign_in_person(
+        "okta",
+        "sub-1",
+        email="ann@x.com",
+        email_verified=True,
+        name="Ann",
+        role_sources={"provider:okta": ["operator", "viewer"]},
+    )
+    store.assign_role(user.id, "operator")
+    user = store.sign_in_person(
+        "okta",
+        "sub-1",
+        email="ann@x.com",
+        email_verified=True,
+        name="Ann",
+        role_sources={"provider:okta": []},
+    )
+    assert user.roles == ["operator"]
+
+
+def test_verified_email_links_a_second_provider(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = store.sign_in_person(
+        "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+    )
+    via_github = store.sign_in_person(
+        "github", "42", email="ann@x.com", email_verified=True, name="ann", role_sources={}
+    )
+    assert via_github.id == ann.id
+    impostor = store.sign_in_person(
+        "other", "7", email="ann@x.com", email_verified=False, name="Ann?", role_sources={}
+    )
+    assert impostor.id != ann.id
+    assert impostor.email is None
+
+
+def test_disabled_person_cannot_sign_in(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = store.sign_in_person(
+        "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+    )
+    store.set_disabled(ann.id, True)
+    with pytest.raises(UserDisabled):
+        store.sign_in_person(
+            "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+        )

@@ -62,6 +62,8 @@ exclude_docs: |
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - How-to:
+      - Identity Providers: how-to/identity-providers.md
   - API Reference:
       - woodglue.config: reference/config.md
       - woodglue.access: reference/access.md
@@ -73,6 +75,10 @@ nav:
           - woodglue.apps.server: reference/apps-server.md
           - woodglue.apps.rpc: reference/apps-rpc.md
           - woodglue.apps.llm_docs: reference/apps-llm-docs.md
+          - woodglue.apps.authn: reference/apps-authn.md
+          - woodglue.apps.auth_pages: reference/apps-auth-pages.md
+          - woodglue.apps.identity_providers: reference/apps-identity-providers.md
+          - woodglue.apps.uis: reference/apps-uis.md
       - woodglue.hello: reference/hello.md
   - UI Decks: decks/index.md
   - Release Notes:

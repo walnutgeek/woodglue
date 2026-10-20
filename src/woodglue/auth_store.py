@@ -38,7 +38,10 @@ from woodglue.access import ADMIN_ROLE, Caller, Grant
 logger = logging.getLogger(__name__)
 
 ADMIN_USER_ID = "admin"
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
+
+MANUAL = "manual"
+"""Source of Role assignments made by an admin, as opposed to synced at sign-in."""
 
 DEFAULT_SESSION_IDLE = timedelta(hours=12)
 DEFAULT_SESSION_MAX = timedelta(days=7)
@@ -86,6 +89,10 @@ class IssuedToken(BaseModel):
 
 
 class UnknownUser(LookupError):
+    pass
+
+
+class UserDisabled(PermissionError):
     pass
 
 
@@ -144,6 +151,8 @@ class AuthStore:
             self._create_v1(conn)
         if version < 2:
             conn.execute("ALTER TABLE credentials ADD COLUMN last_used_at TEXT")
+        if version < 3:
+            self._upgrade_to_v3(conn)
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def _create_v1(self, conn: sqlite3.Connection) -> None:
@@ -194,6 +203,29 @@ class AuthStore:
                 )
             conn.execute("DROP TABLE tokens")
 
+    def _upgrade_to_v3(self, conn: sqlite3.Connection) -> None:
+        # Role assignments gain a source, which is part of the key, so the table is rebuilt.
+        conn.executescript(
+            """
+            CREATE TABLE role_assignments_v3 (
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                source TEXT NOT NULL,
+                PRIMARY KEY (user_id, role, source)
+            );
+            INSERT INTO role_assignments_v3 SELECT user_id, role, 'manual' FROM role_assignments;
+            DROP TABLE role_assignments;
+            ALTER TABLE role_assignments_v3 RENAME TO role_assignments;
+            CREATE TABLE linked_identities (
+                provider TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (provider, subject)
+            );
+            """
+        )
+
     def _ensure_admin_user(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO users (id, name, kind, created_at) VALUES (?, ?, ?, ?)",
@@ -210,7 +242,8 @@ class AuthStore:
         roles = [
             r["role"]
             for r in conn.execute(
-                "SELECT role FROM role_assignments WHERE user_id = ? ORDER BY role", (row["id"],)
+                "SELECT DISTINCT role FROM role_assignments WHERE user_id = ? ORDER BY role",
+                (row["id"],),
             )
         ]
         return User(
@@ -264,11 +297,12 @@ class AuthStore:
         with self._connect() as conn:
             self._require_user(conn, user_id)
             conn.execute(
-                "INSERT OR IGNORE INTO role_assignments (user_id, role) VALUES (?, ?)",
-                (user_id, role),
+                "INSERT OR IGNORE INTO role_assignments (user_id, role, source) VALUES (?, ?, ?)",
+                (user_id, role, MANUAL),
             )
 
     def unassign_role(self, user_id: str, role: str) -> None:
+        """Remove a Role from every source; a provider re-adds its own at the next sign-in."""
         with self._connect() as conn:
             self._require_user(conn, user_id)
             conn.execute(
@@ -284,6 +318,82 @@ class AuthStore:
             conn.execute("UPDATE users SET disabled = ? WHERE id = ?", (int(disabled), user_id))
             if disabled:
                 conn.execute("DELETE FROM credentials WHERE user_id = ?", (user_id,))
+
+    def sign_in_person(
+        self,
+        provider: str,
+        subject: str,
+        *,
+        email: str | None,
+        email_verified: bool,
+        name: str,
+        role_sources: dict[str, list[str]],
+    ) -> User:
+        """
+        Find or create the User for an Identity Provider's assertion, after the
+        caller has decided the person is admitted.
+
+        The User is found by its Linked Identity, else by a verified email
+        matching an existing User (linking the identity to it), else created.
+        An unverified email is not stored, so it can never take over an account.
+        Each entry of `role_sources` replaces that source's Role assignments,
+        leaving assignments from other sources (and manual ones) alone.
+
+        Raises `UserDisabled` if the User is disabled.
+        """
+        verified_email = email.lower() if email and email_verified else None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT u.* FROM linked_identities l JOIN users u ON u.id = l.user_id "
+                + "WHERE l.provider = ? AND l.subject = ?",
+                (provider, subject),
+            ).fetchone()
+            if row is None and verified_email is not None:
+                row = conn.execute(
+                    "SELECT * FROM users WHERE email = ? AND kind = ?",
+                    (verified_email, UserKind.person),
+                ).fetchone()
+            now = self.clock().isoformat()
+            if row is None:
+                user_id = _new_id("usr")
+                conn.execute(
+                    "INSERT INTO users (id, name, email, kind, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, name, verified_email, UserKind.person, now),
+                )
+            else:
+                user_id = row["id"]
+                if row["disabled"]:
+                    raise UserDisabled(f"User {user_id} is disabled")
+                conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user_id))
+                if verified_email and row["email"] != verified_email:
+                    taken = conn.execute(
+                        "SELECT 1 FROM users WHERE email = ?", (verified_email,)
+                    ).fetchone()
+                    if not taken:
+                        conn.execute(
+                            "UPDATE users SET email = ? WHERE id = ?", (verified_email, user_id)
+                        )
+            conn.execute(
+                "INSERT OR IGNORE INTO linked_identities (provider, subject, user_id, created_at) "
+                + "VALUES (?, ?, ?, ?)",
+                (provider, subject, user_id, now),
+            )
+            for source, roles in role_sources.items():
+                conn.execute(
+                    "DELETE FROM role_assignments WHERE user_id = ? AND source = ?",
+                    (user_id, source),
+                )
+                for role in roles:
+                    if role not in self.roles:
+                        logger.warning("Sign-in source %s names undefined Role %r", source, role)
+                        continue
+                    conn.execute(
+                        "INSERT OR IGNORE INTO role_assignments (user_id, role, source) "
+                        + "VALUES (?, ?, ?)",
+                        (user_id, role, source),
+                    )
+            user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            return self._user_from_row(conn, user_row)
 
     def _require_user(self, conn: sqlite3.Connection, user_id: str) -> None:
         if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
