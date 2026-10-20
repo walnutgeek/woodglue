@@ -17,8 +17,8 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `list_uis` shows the UIs the Caller may open (`view` on `ui:<name>`, or
   public ones).
 - `whoami` and a User's own tokens (`create_token`, `list_tokens`,
-  `revoke_token`) need no Grant. A narrowed token cannot create tokens, so it
-  cannot mint one broader than itself.
+  `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
+  a Session can create tokens (see `Caller.may_issue_credentials`).
 - User management (`list_users`, `create_service_user`, `disable_user`,
   `enable_user`, `assign_role`, `unassign_role`) and other Users' tokens need
   `admin`.
@@ -370,7 +370,7 @@ def build_system_namespace(
             name=caller.name,
             email=caller.email,
             roles=list(caller.roles),
-            narrowed=len(caller.grant_sets) > 1,
+            narrowed=caller.narrowed,
         )
 
     def create_token(
@@ -382,8 +382,8 @@ def build_system_namespace(
         """
         caller = _require_user_caller()
         assert caller.user_id is not None
-        if len(caller.grant_sets) > 1:
-            raise RpcError(INVALID_PARAMS, "A narrowed token cannot create tokens")
+        if not caller.may_issue_credentials:
+            raise RpcError(INVALID_PARAMS, "Narrowed and Delegated Tokens cannot create tokens")
         expires_at = (
             datetime.now(UTC) + timedelta(days=expires_in_days) if expires_in_days else None
         )

@@ -15,7 +15,7 @@ from typing_extensions import override
 
 from woodglue.apps.server import create_app
 from woodglue.client import WoodglueClient, WoodglueRpcError
-from woodglue.config import NamespaceEntry, WoodglueConfig
+from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig
 from woodglue.hello import HelloOut
 
 PUB_NS_YAML = """\
@@ -86,7 +86,8 @@ class TestIntegration(tornado.testing.AsyncHTTPTestCase):
             namespaces={
                 "pub": NamespaceEntry(file="pub_ns.yaml"),
                 "internal": NamespaceEntry(file="internal_ns.yaml"),
-            }
+            },
+            auth=AuthConfig(enabled=False),
         )
         return create_app(namespaces=namespaces, config=config)
 

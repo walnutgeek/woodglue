@@ -54,6 +54,9 @@ class ProxyTestCase(tornado.testing.AsyncHTTPTestCase):
         super().tearDown()
         self._tmp.cleanup()
 
+    def jwks_url(self) -> str:
+        return (Path(self._tmp.name) / "jwks.json").as_uri()
+
     @override
     def get_app(self) -> tornado.web.Application:
         tmp = Path(self._tmp.name)
@@ -65,7 +68,7 @@ class ProxyTestCase(tornado.testing.AsyncHTTPTestCase):
                         "id": "cf",
                         "kind": "trusted_proxy_jwt",
                         "header": "Cf-Access-Jwt-Assertion",
-                        "jwks_url": (tmp / "jwks.json").as_uri(),
+                        "jwks_url": self.jwks_url(),
                         "issuer": "https://team.cloudflareaccess.com",
                         "audience": "aud-tag",
                         "admit": {"email_domains": ["x.com"]},
@@ -147,6 +150,11 @@ class TestTrustedProxyJwt(ProxyTestCase):
         assert data["result"]["email"] == "bob@x.com"
         assert new_session is not None and new_session != session
 
+    def test_cookieless_clients_share_one_session(self) -> None:
+        _, first = self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt()})
+        _, second = self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt()})
+        assert first is not None and first == second
+
     @pytest.mark.filterwarnings("ignore")
     def test_bad_assertions_are_unauthorized(self) -> None:
         for bad in (
@@ -201,3 +209,47 @@ def test_header_kind_requires_trusted_sources() -> None:
                 ]
             }
         )
+
+
+class _Jwks(tornado.web.RequestHandler):
+    @override
+    def get(self) -> None:
+        jwk = RSAAlgorithm.to_jwk(_KEY.public_key(), as_dict=True)
+        self.write({"keys": [{**jwk, "kid": "k1", "alg": "RS256", "use": "sig"}]})
+
+
+class TestJwksOverHttp(ProxyTestCase):
+    """Keys served from the same event loop: a blocking fetch would deadlock here."""
+
+    _jwks_server: Any  # pyright: ignore[reportUninitializedInstanceVariable]
+    _jwks_url: str  # pyright: ignore[reportUninitializedInstanceVariable]
+
+    @override
+    def setUp(self) -> None:
+        import tornado.httpserver
+
+        sock, port = tornado.testing.bind_unused_port()
+        self._jwks_url = f"http://127.0.0.1:{port}/jwks"
+        super().setUp()
+        self._jwks_server = tornado.httpserver.HTTPServer(
+            tornado.web.Application([(r"/jwks", _Jwks)])
+        )
+        self._jwks_server.add_sockets([sock])
+
+    @override
+    def tearDown(self) -> None:
+        self._jwks_server.stop()
+        super().tearDown()
+
+    @override
+    def jwks_url(self) -> str:
+        return self._jwks_url
+
+    def test_keys_load_without_blocking_and_then_verify(self) -> None:
+        async def keys_loaded() -> None:
+            for proxy in self._app.settings["trusted_proxies"]:
+                await proxy.load_keys()
+
+        self.io_loop.run_sync(keys_loaded, timeout=10)
+        data, _ = self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt()})
+        assert data["result"]["email"] == "ann@x.com"

@@ -180,7 +180,7 @@ class TestSessionRpc(SessionTestCase):
 
 class TestConsole(SessionTestCase):
     def test_root_redirects_to_console(self) -> None:
-        for path in ("/", "/ui", "/ui/", "/console"):
+        for path in ("/", "/console"):
             resp = self.get(path)
             assert resp.code in (301, 302), path
             assert resp.headers["Location"] == "/console/", path
@@ -195,3 +195,15 @@ class TestConsole(SessionTestCase):
         resp = self.get("/console/", self.session_cookie("console"))
         assert resp.code == 200
         assert b"<html" in resp.body.lower()
+
+
+class TestBehindTlsProxy(SessionTestCase):
+    @override
+    def get_app(self) -> tornado.web.Application:
+        app = super().get_app()
+        app.settings["config"].auth.public_url = "https://wg.example.com"
+        return app
+
+    def test_cookie_is_secure_when_the_public_url_is_https(self) -> None:
+        resp = self.login(self.tokens["caller"])
+        assert "secure" in resp.headers["Set-Cookie"].lower()

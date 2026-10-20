@@ -42,7 +42,7 @@ from woodglue.access import ADMIN_ROLE, Caller, Grant
 logger = logging.getLogger(__name__)
 
 ADMIN_USER_ID = "admin"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 1
 
 MANUAL = "manual"
 """Source of Role assignments made by an admin, as opposed to synced at sign-in."""
@@ -151,24 +151,11 @@ class AuthStore:
             conn.commit()
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version < 1:
-            self._create_v1(conn)
-        if version < 2:
-            conn.execute("ALTER TABLE credentials ADD COLUMN last_used_at TEXT")
-        if version < 3:
-            self._upgrade_to_v3(conn)
-        if version < 4:
-            conn.execute(
-                "ALTER TABLE credentials "
-                + "ADD COLUMN parent_id TEXT REFERENCES credentials(id) ON DELETE CASCADE"
-            )
-        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
-
-    def _create_v1(self, conn: sqlite3.Connection) -> None:
+        if conn.execute("PRAGMA user_version").fetchone()[0] >= _SCHEMA_VERSION:
+            return
         conn.executescript(
             """
-            CREATE TABLE IF NOT EXISTS users (
+            CREATE TABLE users (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 email TEXT UNIQUE,
@@ -176,12 +163,20 @@ class AuthStore:
                 disabled INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS role_assignments (
+            CREATE TABLE role_assignments (
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 role TEXT NOT NULL,
-                PRIMARY KEY (user_id, role)
+                source TEXT NOT NULL,
+                PRIMARY KEY (user_id, role, source)
             );
-            CREATE TABLE IF NOT EXISTS credentials (
+            CREATE TABLE linked_identities (
+                provider TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (provider, subject)
+            );
+            CREATE TABLE credentials (
                 id TEXT PRIMARY KEY,
                 secret TEXT NOT NULL UNIQUE,
                 kind TEXT NOT NULL,
@@ -189,11 +184,14 @@ class AuthStore:
                 name TEXT NOT NULL,
                 grants TEXT,
                 created_at TEXT NOT NULL,
-                expires_at TEXT
+                expires_at TEXT,
+                last_used_at TEXT,
+                parent_id TEXT REFERENCES credentials(id) ON DELETE CASCADE
             );
             """
         )
         self._ensure_admin_user(conn)
+        # Before 0.0.9, auth.db held only a list of tokens, all with full access.
         has_legacy = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
         ).fetchone()
@@ -212,29 +210,7 @@ class AuthStore:
                     ),
                 )
             conn.execute("DROP TABLE tokens")
-
-    def _upgrade_to_v3(self, conn: sqlite3.Connection) -> None:
-        # Role assignments gain a source, which is part of the key, so the table is rebuilt.
-        conn.executescript(
-            """
-            CREATE TABLE role_assignments_v3 (
-                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                role TEXT NOT NULL,
-                source TEXT NOT NULL,
-                PRIMARY KEY (user_id, role, source)
-            );
-            INSERT INTO role_assignments_v3 SELECT user_id, role, 'manual' FROM role_assignments;
-            DROP TABLE role_assignments;
-            ALTER TABLE role_assignments_v3 RENAME TO role_assignments;
-            CREATE TABLE linked_identities (
-                provider TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (provider, subject)
-            );
-            """
-        )
+        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def _ensure_admin_user(self, conn: sqlite3.Connection) -> None:
         conn.execute(
@@ -242,8 +218,8 @@ class AuthStore:
             (ADMIN_USER_ID, ADMIN_USER_ID, UserKind.service, self.clock().isoformat()),
         )
         conn.execute(
-            "INSERT OR IGNORE INTO role_assignments (user_id, role) VALUES (?, ?)",
-            (ADMIN_USER_ID, ADMIN_ROLE),
+            "INSERT OR IGNORE INTO role_assignments (user_id, role, source) VALUES (?, ?, ?)",
+            (ADMIN_USER_ID, ADMIN_ROLE, MANUAL),
         )
 
     # Users
@@ -534,8 +510,21 @@ class AuthStore:
 
     # Sessions
 
-    def create_session(self, user_id: str) -> str:
-        """Start a Session for a User and return its secret, for the browser cookie."""
+    def live_session(self, user_id: str, name: str) -> str | None:
+        """The secret of a live Session of `user_id` started under `name`, if any."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT secret FROM credentials WHERE user_id = ? AND kind = ? AND name = ? "
+                + "ORDER BY created_at DESC",
+                (user_id, CredentialKind.session, name),
+            ).fetchall()
+        return next((r["secret"] for r in rows if self.session_is_live(r["secret"])), None)
+
+    def create_session(self, user_id: str, name: str = "browser") -> str:
+        """
+        Start a Session for a User and return its secret, for the browser
+        cookie. `name` records how it was started.
+        """
         now = self.clock()
         secret = secrets.token_urlsafe(32)
         with self._connect() as conn:
@@ -549,7 +538,7 @@ class AuthStore:
                     secret,
                     CredentialKind.session,
                     user_id,
-                    "browser",
+                    name,
                     now.isoformat(),
                     (now + self.session_max).isoformat(),
                     now.isoformat(),
@@ -661,9 +650,11 @@ class AuthStore:
                 if session is None or not self._session_alive(conn, session, now):
                     return None
             user = self._user_from_row(conn, row)
-        return self._caller(user, row["cid"], row["grants"])
+        return self._caller(user, row["cid"], row["ckind"], row["grants"])
 
-    def _caller(self, user: User, credential_id: str, token_grants: str | None) -> Caller:
+    def _caller(
+        self, user: User, credential_id: str, credential_kind: str, token_grants: str | None
+    ) -> Caller:
         user_grants: list[Grant] = []
         for role in user.roles:
             grants = self.roles.get(role)
@@ -678,6 +669,7 @@ class AuthStore:
             user_id=user.id,
             grant_sets=tuple(grant_sets),
             credential_id=credential_id,
+            credential_kind=credential_kind,
             name=user.name,
             email=user.email,
             roles=tuple(user.roles),

@@ -31,7 +31,9 @@ def _make_namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
 class TestWoodglueClient(tornado.testing.AsyncHTTPTestCase):
     @override
     def get_app(self):
-        config = WoodglueConfig(namespaces={"test": NamespaceEntry(gref="unused")})
+        config = WoodglueConfig(
+            namespaces={"test": NamespaceEntry(gref="unused")}, auth=AuthConfig(enabled=False)
+        )
         return create_app(namespaces=_make_namespaces(), config=config)
 
     @tornado.testing.gen_test

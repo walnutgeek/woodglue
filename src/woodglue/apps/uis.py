@@ -63,20 +63,21 @@ def identity_headers(auth: Authentication, store: AuthStore | None, ui_name: str
     return headers
 
 
-def require_view(handler: tornado.web.RequestHandler, ui_name: str) -> bool:
+def require_view(handler: tornado.web.RequestHandler, ui_name: str) -> Authentication | None:
     """
     Check that the request may open `ui_name`, finishing it with a login
-    redirect or 403 if not. Returns whether the handler should go on.
+    redirect or 403 if not. Returns the request's `Authentication`, or `None`
+    once the request is finished.
     """
-    caller = authenticate(handler).caller
-    if caller is None:
+    auth = authenticate(handler)
+    if auth.caller is None:
         handler.redirect(f"/auth/login?next={quote(handler.request.uri or '/', safe='')}")
-        return False
-    if not caller.can(Action.view, f"ui:{ui_name}"):
+        return None
+    if not auth.caller.can(Action.view, f"ui:{ui_name}"):
         handler.set_status(403)
         handler.finish(f"Forbidden: requires 'view' on 'ui:{ui_name}'")
-        return False
-    return True
+        return None
+    return auth
 
 
 class UiStaticHandler(tornado.web.StaticFileHandler):

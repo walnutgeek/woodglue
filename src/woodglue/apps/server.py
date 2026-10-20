@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import tornado.ioloop
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
@@ -23,7 +24,7 @@ from woodglue.apps.ui_process import UiProcesses
 from woodglue.apps.ui_proxy import UiProxyHandler, UiSockets
 from woodglue.apps.uis import UiStaticHandler, VerifyHandler, ui_path
 from woodglue.auth_store import AuthStore
-from woodglue.config import NamespaceEntry, WoodglueConfig
+from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig
 from woodglue.engine import EngineRegistry
 from woodglue.mount import MountContext
 
@@ -46,13 +47,15 @@ def create_app(
     internal use. The `method_index` is filtered by `expose_api`.
 
     With auth enabled, `auth_store` defaults to one opened on
-    `config.storage.auth_db`; pass it to share the instance the system
-    namespace uses. `ui_processes` supervises Process-backed UIs; the caller
+    `config.storage.auth_db`, which must then be set; pass it to share the
+    instance the system namespace uses. Without `config`, auth is disabled. `ui_processes` supervises Process-backed UIs; the caller
     starts and stops it (see `wgl start`).
     """
     if config is None:
-        config = WoodglueConfig(namespaces={})
-    if auth_store is None and config.auth.enabled and config.storage.auth_db is not None:
+        config = WoodglueConfig(namespaces={}, auth=AuthConfig(enabled=False))
+    if auth_store is None and config.auth.enabled:
+        if config.storage.auth_db is None:
+            raise ValueError("Auth is enabled but storage.auth_db is not set")
         auth_store = AuthStore(config.storage.auth_db, config.auth.resolved_roles())
 
     # Plain namespace dict for internal use (e.g. `wgl run`)
@@ -131,9 +134,11 @@ def create_app(
         )
 
     if config.ui.enabled or config.uis:
-        # `/ui/` was the Console's path before 0.0.9; keep old bookmarks working.
-        landing = ui_path(config.ui.default)
-        handlers.append((r"/(ui/?)?", tornado.web.RedirectHandler, {"url": landing}))
+        handlers.append((r"/", tornado.web.RedirectHandler, {"url": ui_path(config.ui.default)}))
+
+    trusted_proxies = make_trusted_proxies(config.auth.providers) if auth_store else []
+    for proxy in trusted_proxies:
+        tornado.ioloop.IOLoop.current().add_callback(proxy.load_keys)
 
     return tornado.web.Application(
         handlers,
@@ -143,7 +148,7 @@ def create_app(
         auth_enabled=config.auth.enabled,
         auth_store=auth_store,
         login_providers=login_providers,
-        trusted_proxies=make_trusted_proxies(config.auth.providers) if auth_store else [],
+        trusted_proxies=trusted_proxies,
         pending_sign_ins=PendingSignIns(),
         cli_codes=CliCodes(),
         ui_processes=ui_processes,

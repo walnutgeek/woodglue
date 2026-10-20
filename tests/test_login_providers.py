@@ -127,8 +127,12 @@ class _GitHubApi(tornado.web.RequestHandler):
     @override
     def get(self, path: str) -> None:
         token = self.request.headers["Authorization"].removeprefix("Bearer ")
-        profile = self.fake.github_profiles[token]
-        self.write(json.dumps(profile[path]))
+        result = self.fake.github_profiles[token][path]
+        if isinstance(result, list):
+            per_page = int(self.get_argument("per_page", "30"))
+            page = int(self.get_argument("page", "1"))
+            result = result[(page - 1) * per_page : page * per_page]
+        self.write(json.dumps(result))
 
 
 def _fake_app(fake: FakeProvider) -> tornado.web.Application:
@@ -342,6 +346,10 @@ class TestGitHub(LoginTestCase):
         assert me["email"] == "u7@gh.example"
         assert me["name"] == "user7"
         assert me["roles"] == ["operator"]
+
+    def test_membership_beyond_the_first_page_counts(self) -> None:
+        orgs = [f"org{i}" for i in range(150)] + ["walnutgeek"]
+        assert self.github_sign_in(9, orgs, []).code == 302
 
     def test_non_member_is_refused(self) -> None:
         assert self.github_sign_in(8, ["other-org"], []).code == 403

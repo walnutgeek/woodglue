@@ -5,6 +5,7 @@ and websockets to it, injecting the viewing User's identity.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -167,6 +168,36 @@ class TestProxyHttp(ProcessUiTestCase):
         )
         assert json.loads(resp.body)["result"]["name"] == "echo-viewer"
 
+    def test_delegated_token_cannot_mint_lasting_credentials(self) -> None:
+        token = self.info(self.session("echo-viewer"))["headers"]["X-Woodglue-Token"]
+        body = json.dumps(
+            {"jsonrpc": "2.0", "method": "system.create_token", "params": {"name": "x"}, "id": 1}
+        )
+        resp = self.fetch(
+            "/rpc", method="POST", body=body, headers={"Authorization": f"Bearer {token}"}
+        )
+        assert json.loads(resp.body)["error"]["code"] == -32602
+        resp = self.fetch(
+            "/auth/login",
+            method="POST",
+            body=urlencode({"token": token}),
+            follow_redirects=False,
+            raise_error=False,
+        )
+        assert resp.code == 401
+        cli = urlencode(
+            {"redirect_uri": "http://127.0.0.1:9/cb", "state": "s", "code_challenge": "c"}
+        )
+        resp = self.fetch(
+            f"/auth/cli?{cli}",
+            method="POST",
+            body=cli,
+            headers={"Authorization": f"Bearer {token}"},
+            follow_redirects=False,
+            raise_error=False,
+        )
+        assert resp.code == 403
+
     def test_access_is_gated_by_view_grant(self) -> None:
         resp = self.get("/ui/echo/info")
         assert resp.code == 302 and resp.headers["Location"].startswith("/auth/login?next=")
@@ -200,6 +231,31 @@ class TestProxyHttp(ProcessUiTestCase):
         assert self.process.state == UiState.ready
         assert self.process.pid != first_pid
         assert self.info(session)["path"] == "/ui/echo/info?x=1"
+
+
+class TestProxyStreaming(ProcessUiTestCase):
+    @tornado.testing.gen_test(timeout=20)
+    async def test_response_chunks_pass_through_as_they_arrive(self) -> None:
+        session = self.store.create_session(self.store.find_user("echo-viewer").id)
+        cookie = {"Cookie": f"wgl_session={session}"}
+        chunks: list[bytes] = []
+        first = asyncio.Event()
+
+        def on_chunk(chunk: bytes) -> None:
+            chunks.append(chunk)
+            first.set()
+
+        streaming = self.http_client.fetch(
+            self.get_url("/ui/echo/stream"), headers=cookie, streaming_callback=on_chunk
+        )
+        # A buffering proxy would hold `first` until the upstream finishes, which
+        # needs the release below: this wait would then time out.
+        await asyncio.wait_for(first.wait(), 10)
+        assert b"".join(chunks) == b"first\n"
+        await self.http_client.fetch(self.get_url("/ui/echo/release"), headers=cookie)
+        resp = await streaming
+        assert resp.code == 200
+        assert b"".join(chunks) == b"first\nsecond\n"
 
 
 class TestProxyWebsocket(ProcessUiTestCase):

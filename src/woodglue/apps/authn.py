@@ -2,9 +2,8 @@
 Request authentication shared by the woodglue HTTP handlers.
 
 `authenticate` turns a request into a `woodglue.access.Caller`, reading the
-application settings `auth_enabled` and `auth_store`. An app with auth disabled,
-or built without an `auth_store` (as `create_app` does when the config has no
-`storage.auth_db`), serves every request as the anonymous Caller.
+application settings `auth_enabled` and `auth_store`. An app with auth disabled
+serves every request as the anonymous Caller.
 
 A request authenticates in one of these ways, tried in order:
 
@@ -59,15 +58,19 @@ class Authentication:
 
 
 def bearer_token(request: tornado.httputil.HTTPServerRequest) -> str:
+    """The token of an `Authorization: Bearer` header, or `""`."""
     header = request.headers.get("Authorization", "")
     return header[7:].strip() if header.startswith("Bearer ") else ""
 
 
 def authenticate(handler: tornado.web.RequestHandler) -> Authentication:
+    """Who sent this request and how, trying the ways above in order."""
     settings = handler.application.settings
-    store: AuthStore | None = settings.get("auth_store")
-    if not settings.get("auth_enabled", False) or store is None:
+    if not settings.get("auth_enabled", False):
         return Authentication(ANONYMOUS, AuthVia.anonymous)
+    store: AuthStore | None = settings.get("auth_store")
+    if store is None:
+        return Authentication(None, AuthVia.anonymous)
     token = bearer_token(handler.request)
     if token:
         return Authentication(store.resolve(token), AuthVia.bearer)
@@ -116,16 +119,13 @@ def _proxy_authentication(
             )
         except UserDisabled:
             return Authentication(None, AuthVia.cookie)
-        secret = store.create_session(user.id)
+        # Clients that keep no cookies, such as scripts behind the proxy, share one Session.
+        origin = f"proxy:{who.provider}"
+        secret = store.live_session(user.id, origin) or store.create_session(user.id, origin)
         set_session_cookie(handler, secret)
         logger.info("Signed in %s (%s) through proxy %s", user.id, user.email, who.provider)
         return Authentication(store.resolve(secret), AuthVia.cookie, secret)
     return None
-
-
-def request_caller(handler: tornado.web.RequestHandler) -> Caller | None:
-    """The Caller of this request, or `None` if it is not authenticated."""
-    return authenticate(handler).caller
 
 
 def is_same_origin(request: tornado.httputil.HTTPServerRequest) -> bool:
@@ -140,6 +140,17 @@ def is_same_origin(request: tornado.httputil.HTTPServerRequest) -> bool:
     return urlsplit(source).netloc == request.host
 
 
+def public_scheme(handler: tornado.web.RequestHandler) -> str:
+    """
+    The scheme browsers use to reach this server: that of `auth.public_url`
+    when set, since a proxy terminating TLS forwards plain HTTP, else the
+    request's own.
+    """
+    config = handler.application.settings.get("config")
+    public_url = config.auth.public_url if config is not None else None
+    return urlsplit(public_url).scheme if public_url else handler.request.protocol
+
+
 def set_session_cookie(handler: tornado.web.RequestHandler, secret: str) -> None:
     handler.set_cookie(
         SESSION_COOKIE,
@@ -147,7 +158,7 @@ def set_session_cookie(handler: tornado.web.RequestHandler, secret: str) -> None
         path="/",
         httponly=True,
         samesite="Lax",
-        secure=handler.request.protocol == "https",
+        secure=public_scheme(handler) == "https",
     )
 
 

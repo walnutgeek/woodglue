@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 from woodglue.access import Caller
-from woodglue.apps.authn import request_caller
+from woodglue.apps.authn import authenticate
 from woodglue.config import NamespaceEntry
 
 
@@ -359,7 +359,7 @@ class _AuthDocHandler(tornado.web.RequestHandler):
 
     @override
     def prepare(self) -> None:
-        self.caller = request_caller(self)
+        self.caller = authenticate(self).caller
         if self.caller is None:
             self.set_status(401)
             self.finish("Unauthorized")

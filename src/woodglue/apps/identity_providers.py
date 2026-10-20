@@ -28,6 +28,7 @@ one only means signing in again.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import ipaddress
@@ -39,8 +40,9 @@ import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import jwt
 import tornado.httpclient
@@ -313,6 +315,16 @@ class GitHubClient(ProviderClient):
             )
         )
 
+    async def _api_all(self, token: str, path: str, max_pages: int = 10) -> list[Any]:
+        """All items of a paginated list endpoint, up to `max_pages` of 100."""
+        items: list[Any] = []
+        for page in range(1, max_pages + 1):
+            batch = await self._api(token, f"{path}?per_page=100&page={page}")
+            items.extend(batch)
+            if len(batch) < 100:
+                break
+        return items
+
     @override
     async def complete(self, pending: PendingSignIn, code: str) -> ExternalIdentity:
         tokens = await _fetch_json(
@@ -339,10 +351,10 @@ class GitHubClient(ProviderClient):
         primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
         groups: list[str] = []
         if self._needs_groups():
-            groups.extend(o["login"] for o in await self._api(token, "user/orgs"))
+            groups.extend(o["login"] for o in await self._api_all(token, "user/orgs"))
             groups.extend(
                 f"{t['organization']['login']}/{t['slug']}"
-                for t in await self._api(token, "user/teams")
+                for t in await self._api_all(token, "user/teams")
             )
         return ExternalIdentity(
             provider=self.config.id,
@@ -376,6 +388,10 @@ class TrustedProxy(ABC):
     def __init__(self, config: ProviderConfig) -> None:
         self.config = config
 
+    async def load_keys(self) -> None:
+        """Fetch whatever the proxy's assertions are checked against, if anything."""
+        return None
+
     @abstractmethod
     def identify(self, request: tornado.httputil.HTTPServerRequest) -> ExternalIdentity | None:
         """
@@ -386,44 +402,76 @@ class TrustedProxy(ABC):
 
 class JwksCache:
     """
-    Signing keys from a JWKS URL (`https://` or `file://`), refetched hourly
-    and when a token names an unknown key id, but at most once a minute so
-    forged key ids cannot make woodglue hammer the URL. Fetching blocks the
-    server briefly; it happens at the first request and on key rotation.
+    Signing keys from a JWKS URL, refreshed hourly and when a token names an
+    unknown key id, but at most once a minute, so forged key ids cannot make
+    woodglue hammer the URL.
+
+    `https://` keys load in the background (`load`, which `create_app` starts),
+    so request handling never waits on the network: a token checked before
+    they arrive, or naming a key not seen yet, is refused while a refresh runs.
+    `file://` keys, for providers whose keys are deployed as files, are read
+    in place.
     """
 
     url: str
     _keys: jwt.PyJWKSet | None
     _fetched_at: float
+    _loading: asyncio.Task[None] | None
 
     def __init__(self, url: str) -> None:
         self.url = url
         self._keys = None
-        self._fetched_at = 0.0
+        self._fetched_at = -3600.0
+        self._loading = None
 
-    def _fetch(self) -> None:
+    @property
+    def _is_file(self) -> bool:
+        return self.url.startswith("file://")
+
+    def _read_file(self) -> None:
+        path = Path(urllib.request.url2pathname(urlsplit(self.url).path))
         try:
-            with urllib.request.urlopen(self.url, timeout=5) as resp:
-                self._keys = jwt.PyJWKSet.from_dict(json.load(resp))
+            self._keys = jwt.PyJWKSet.from_dict(json.loads(path.read_text()))
         except (OSError, ValueError, jwt.PyJWTError) as exc:
-            raise SignInError(f"Could not load signing keys from {self.url}: {exc}") from exc
-        finally:
-            self._fetched_at = time.monotonic()
+            logger.warning("Could not load signing keys from %s: %s", self.url, exc)
+
+    async def load(self) -> None:
+        """Fetch the keys now. Failures are logged; a later check retries."""
+        self._fetched_at = time.monotonic()
+        if self._is_file:
+            self._read_file()
+            return
+        try:
+            raw = await _fetch_json(tornado.httpclient.HTTPRequest(self.url))
+            self._keys = jwt.PyJWKSet.from_dict(raw)
+        except (ValueError, jwt.PyJWTError, SignInError) as exc:
+            logger.warning("Could not load signing keys from %s: %s", self.url, exc)
+
+    def _refresh_soon(self) -> None:
+        if time.monotonic() - self._fetched_at < 60:
+            return
+        if self._loading is not None and not self._loading.done():
+            return
+        self._fetched_at = time.monotonic()
+        if self._is_file:
+            self._read_file()
+        else:
+            self._loading = asyncio.get_running_loop().create_task(self.load())
+
+    def _find(self, kid: str | None) -> jwt.PyJWK | None:
+        if self._keys is None:
+            return None
+        return next((k for k in self._keys.keys if kid is None or k.key_id == kid), None)
 
     def key(self, kid: str | None) -> jwt.PyJWK:
-        age = time.monotonic() - self._fetched_at
-        if self._keys is None or age > 3600:
-            self._fetch()
-        for attempt in range(2):
-            assert self._keys is not None
-            for key in self._keys.keys:
-                if kid is None or key.key_id == kid:
-                    return key
-            if attempt == 0 and time.monotonic() - self._fetched_at > 60:
-                self._fetch()
-            else:
-                break
-        raise SignInError(f"No signing key {kid!r} at {self.url}")
+        found = self._find(kid)
+        if found is None or time.monotonic() - self._fetched_at > 3600:
+            self._refresh_soon()
+            # A file is read in place, so its keys may be here now.
+            found = found or self._find(kid)
+        if found is None:
+            raise SignInError(f"No signing key {kid!r} from {self.url} (yet)")
+        return found
 
 
 class JwtProxy(TrustedProxy):
@@ -435,6 +483,10 @@ class JwtProxy(TrustedProxy):
         super().__init__(config)
         assert config.jwks_url is not None
         self._jwks = JwksCache(config.jwks_url)
+
+    @override
+    async def load_keys(self) -> None:
+        await self._jwks.load()
 
     @override
     def identify(self, request: tornado.httputil.HTTPServerRequest) -> ExternalIdentity | None:
@@ -513,6 +565,7 @@ class HeaderProxy(TrustedProxy):
 
 
 def make_trusted_proxies(providers: list[ProviderConfig]) -> list[TrustedProxy]:
+    """Verifiers for the trusted-proxy providers among `providers`."""
     proxies: list[TrustedProxy] = []
     for p in providers:
         if p.kind == ProviderKind.trusted_proxy_jwt:

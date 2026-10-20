@@ -40,6 +40,7 @@ from woodglue.apps.authn import (
     authenticate,
     clear_session_cookie,
     is_same_origin,
+    public_scheme,
     set_session_cookie,
 )
 from woodglue.apps.identity_providers import (
@@ -126,6 +127,7 @@ _PAGE = dedent("""
 
 
 def render_login_page(next_url: str, error: str | None = None, providers_html: str = "") -> str:
+    """The login page HTML: provider buttons (if any) above the token form."""
     intro = (
         "Choose how to sign in."
         if providers_html
@@ -172,9 +174,9 @@ class LoginHandler(tornado.web.RequestHandler):
         store: AuthStore = self.application.settings["auth_store"]
         caller = store.resolve(self.get_argument("token", "").strip())
         error = None
-        if caller is None or caller.user_id is None:
+        if caller is None or caller.user_id is None or caller.credential_kind != "token":
             error = "That token is not valid."
-        elif len(caller.grant_sets) > 1:
+        elif not caller.may_issue_credentials:
             error = "That token is narrowed; sign in with an unnarrowed token."
         if error is not None:
             self.set_status(401)
@@ -246,7 +248,7 @@ class StartSignInHandler(tornado.web.RequestHandler):
             path="/auth/",
             httponly=True,
             samesite="Lax",
-            secure=self.request.protocol == "https",
+            secure=public_scheme(self) == "https",
             expires_days=None,
         )
         self.redirect(url)
@@ -371,6 +373,7 @@ class CliCodes:
         self._codes = {}
 
     def add(self, user_id: str, name: str, challenge: str) -> str:
+        """Issue a code for an approved request, dropping expired ones."""
         cutoff = time.monotonic() - _CLI_CODE_TTL_SECONDS
         self._codes = {c: v for c, v in self._codes.items() if v.created >= cutoff}
         code = secrets.token_urlsafe(24)
@@ -378,6 +381,10 @@ class CliCodes:
         return code
 
     def redeem(self, code: str, verifier: str) -> _CliCode | None:
+        """
+        The approval behind `code` if `verifier` matches its challenge. Any
+        attempt uses the code up, so a wrong verifier cannot be retried.
+        """
         entry = self._codes.pop(code, None)
         if entry is None or time.monotonic() - entry.created > _CLI_CODE_TTL_SECONDS:
             return None
@@ -404,6 +411,8 @@ class CliAuthorizeHandler(tornado.web.RequestHandler):
             self.redirect(f"/auth/login?next={quote(self.request.uri or '/', safe='')}")
         elif caller.user_id is None:
             raise tornado.web.HTTPError(400, "Auth is disabled; the CLI needs no token")
+        elif not caller.may_issue_credentials:
+            raise tornado.web.HTTPError(403, "This credential cannot create tokens")
         return caller
 
     @override

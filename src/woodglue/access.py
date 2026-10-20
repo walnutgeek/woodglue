@@ -131,19 +131,42 @@ def resolve_roles(roles: dict[str, list[str]]) -> dict[str, tuple[Grant, ...]]:
 class Caller:
     """
     Who a request runs as. `user_id` is `None` only for the anonymous Caller
-    used when auth is disabled. `credential_id` names the token or Session that
-    authenticated the request.
+    used when auth is disabled. `credential_id` and `credential_kind` name the
+    token or Session that authenticated the request.
     """
 
     user_id: str | None
     grant_sets: tuple[tuple[Grant, ...], ...]
     credential_id: str | None = None
+    credential_kind: str | None = None
     name: str = ""
     email: str | None = None
     roles: tuple[str, ...] = field(default_factory=tuple)
 
     def can(self, action: Action, target: str = "") -> bool:
         return all(allows(gs, action, target) for gs in self.grant_sets)
+
+    @property
+    def narrowed(self) -> bool:
+        return len(self.grant_sets) > 1
+
+    @property
+    def may_issue_credentials(self) -> bool:
+        """
+        Whether this Caller may create tokens or Sessions. Only an unnarrowed
+        Personal Access Token or a Session may: a narrowed token could mint
+        one broader than itself, and a Delegated Token one that outlives its
+        Session.
+        """
+        return (
+            self.user_id is not None
+            and not self.narrowed
+            and self.credential_kind
+            in (
+                "token",
+                "session",
+            )
+        )
 
     def can_see(self, namespace: str) -> bool:
         """Whether `namespace` appears in discovery for this Caller."""

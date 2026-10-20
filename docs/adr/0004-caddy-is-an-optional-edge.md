@@ -2,9 +2,13 @@
 
 woodglue runs complete without Caddy. Tornado serves static UIs and also proxies
 process-backed UIs such as Streamlit, including their websockets. When Caddy is used,
-it adds TLS, multiple domains, and serving UI files at the edge, and it asks woodglue
-who each request belongs to through `forward_auth`. Users, Sessions, and Grants never
-live in Caddy.
+it adds TLS, multiple domains, and serving static UI files at the edge, and it asks
+woodglue who each request belongs to through `forward_auth`. Users, Sessions, and
+Grants never live in Caddy.
+
+Process-backed UIs stay behind woodglue's own proxy even with Caddy in front: woodglue
+picks their ports when it starts them, and stripping the Session cookie, issuing
+Delegated Tokens, and closing websockets at sign-out belong in one place.
 
 ## Considered Options
 

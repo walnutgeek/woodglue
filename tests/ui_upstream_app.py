@@ -6,6 +6,7 @@ Run as `python ui_upstream_app.py <port> <base_path>`. Under the base path:
 - `GET /_health`: readiness probe.
 - `GET /info`: the request it received (path, headers, cookies) as JSON.
 - `GET /crash`: exits with status 3 right after answering.
+- `GET /stream`: sends `first`, then `second` only after `GET /release`.
 - `/ws`: a websocket that first sends the handshake headers as JSON, then
   echoes every message.
 """
@@ -49,6 +50,25 @@ class Crash(tornado.web.RequestHandler):
         asyncio.get_running_loop().call_later(0.05, os._exit, 3)
 
 
+RELEASE = asyncio.Event()
+
+
+class Stream(tornado.web.RequestHandler):
+    @override
+    async def get(self) -> None:
+        self.write("first\n")
+        await self.flush()
+        await RELEASE.wait()
+        RELEASE.clear()
+        self.write("second\n")
+
+
+class Release(tornado.web.RequestHandler):
+    @override
+    def get(self) -> None:
+        RELEASE.set()
+
+
 class Echo(tornado.websocket.WebSocketHandler):
     @override
     def select_subprotocol(self, subprotocols: list[str]) -> str | None:
@@ -69,6 +89,8 @@ async def main(port: int, base: str) -> None:
             (rf"{base}/_health", Health),
             (rf"{base}/info", Info),
             (rf"{base}/crash", Crash),
+            (rf"{base}/stream", Stream),
+            (rf"{base}/release", Release),
             (rf"{base}/ws", Echo),
         ]
     )

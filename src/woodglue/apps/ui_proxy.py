@@ -14,6 +14,9 @@ for Streamlit. Before forwarding, the proxy:
   a browser Session, `X-Woodglue-Token`, a Delegated Token the process uses to
   call the API as that User (see `woodglue.ui_support`).
 
+Response bodies pass through as they arrive, so event streams and long polls
+work; request bodies are read in full first.
+
 Websockets opened under a Session are closed when it ends: at once on logout,
 and within `SWEEP_SECONDS` when it expires or its User is disabled.
 """
@@ -28,10 +31,11 @@ from typing import Any
 import tornado.httpclient
 import tornado.httputil
 import tornado.ioloop
+import tornado.web
 import tornado.websocket
 from typing_extensions import override
 
-from woodglue.apps.authn import SESSION_COOKIE, Authentication, authenticate
+from woodglue.apps.authn import SESSION_COOKIE, Authentication, authenticate, public_scheme
 from woodglue.apps.ui_process import UiProcesses
 from woodglue.apps.uis import identity_headers, require_view
 from woodglue.auth_store import AuthStore
@@ -64,6 +68,59 @@ def strip_cookie(header: str, name: str) -> str:
     """
     kept = [p.strip() for p in header.split(";") if p.strip().split("=", 1)[0] != name]
     return "; ".join(p for p in kept if p)
+
+
+class _ResponseRelay:
+    """
+    Passes an upstream response to the client as it arrives: the status and
+    headers once they are complete, then each body chunk, flushed at once.
+    """
+
+    handler: tornado.web.RequestHandler
+    method: str
+    started: bool
+    _status_line: str | None
+    _headers: tornado.httputil.HTTPHeaders
+
+    def __init__(self, handler: tornado.web.RequestHandler, method: str) -> None:
+        self.handler = handler
+        self.method = method
+        self.started = False
+        self._status_line = None
+        self._headers = tornado.httputil.HTTPHeaders()
+
+    def on_header_line(self, line: str) -> None:
+        if self._status_line is None:
+            self._status_line = line
+            return
+        if line.strip():
+            self._headers.parse_line(line)
+            return
+        start = tornado.httputil.parse_response_start_line(self._status_line.strip())
+        if start.code == 100:
+            self._status_line = None
+            self._headers = tornado.httputil.HTTPHeaders()
+            return
+        self._start(start.code, start.reason)
+
+    def _start(self, code: int, reason: str) -> None:
+        handler = self.handler
+        handler.set_status(code, reason)
+        handler.clear_header("Content-Type")
+        handler.clear_header("Server")
+        for name, value in self._headers.get_all():
+            lower = name.lower()
+            if lower in _HOP_BY_HOP:
+                continue
+            if lower == "content-length" and (self.method == "HEAD" or code in (204, 304)):
+                continue
+            handler.add_header(name, value)
+        self.started = True
+
+    def on_chunk(self, chunk: bytes) -> None:
+        if chunk and self.method != "HEAD":
+            self.handler.write(chunk)
+            self.handler.flush()
 
 
 class UiSockets:
@@ -127,9 +184,7 @@ class UiProxyHandler(tornado.websocket.WebSocketHandler):
 
     @override
     def prepare(self) -> None:
-        if not self.public and not require_view(self, self.ui_name):
-            return
-        self.auth = authenticate(self)
+        self.auth = authenticate(self) if self.public else require_view(self, self.ui_name)
 
     def _upstream_base(self) -> str | None:
         processes: UiProcesses = self.application.settings["ui_processes"]
@@ -145,7 +200,7 @@ class UiProxyHandler(tornado.websocket.WebSocketHandler):
         cookie = strip_cookie(self.request.headers.get("Cookie", ""), SESSION_COOKIE)
         if cookie:
             headers["Cookie"] = cookie
-        headers["X-Forwarded-Proto"] = self.request.protocol
+        headers["X-Forwarded-Proto"] = public_scheme(self)
         headers["X-Forwarded-Host"] = self.request.host
         if self.request.remote_ip:
             headers["X-Forwarded-For"] = self.request.remote_ip
@@ -195,6 +250,7 @@ class UiProxyHandler(tornado.websocket.WebSocketHandler):
             self.finish(f"UI '{self.ui_name}' is starting or unavailable; try again shortly")
             return
         method = self.request.method or "GET"
+        relay = _ResponseRelay(self, method)
         request = tornado.httpclient.HTTPRequest(
             f"{base}{self.request.uri}",
             method=method,
@@ -203,28 +259,22 @@ class UiProxyHandler(tornado.websocket.WebSocketHandler):
             follow_redirects=False,
             decompress_response=False,
             allow_nonstandard_methods=True,
-            request_timeout=300,
+            connect_timeout=10,
+            # No overall limit: event streams and long polls stay open as long as the UI wants.
+            request_timeout=0,
+            header_callback=relay.on_header_line,
+            streaming_callback=relay.on_chunk,
         )
         try:
             resp = await tornado.httpclient.AsyncHTTPClient().fetch(request, raise_error=False)
+            failed = resp.code == 599
         except OSError as exc:
             logger.warning("UI '%s' upstream failed: %s", self.ui_name, exc)
+            failed = True
+        if failed and not relay.started:
             self.set_status(502)
             self.finish(f"UI '{self.ui_name}' did not answer")
             return
-        if resp.code == 599:
-            self.set_status(502)
-            self.finish(f"UI '{self.ui_name}' did not answer")
-            return
-        self.set_status(resp.code, resp.reason)
-        self.clear_header("Content-Type")
-        self.clear_header("Server")
-        for name, value in resp.headers.get_all():
-            if name.lower() in _HOP_BY_HOP or name.lower() == "content-length":
-                continue
-            self.add_header(name, value)
-        if resp.code not in (204, 304) and method != "HEAD" and resp.body:
-            self.write(resp.body)
         self.finish()
 
     # Websockets
