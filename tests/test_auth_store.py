@@ -268,19 +268,45 @@ def test_delegated_token_acts_as_the_session_user_and_dies_with_it(tmp_path: Pat
     assert store.resolve(delegated) is None
 
 
-def test_delegated_token_follows_session_idle_expiry(tmp_path: Path) -> None:
+def test_delegated_use_does_not_keep_the_session_alive(tmp_path: Path) -> None:
     clock = _Clock()
     store = AuthStore(tmp_path / "auth.db", ROLES, clock=clock)
     user = store.create_service_user("ci")
     session = store.create_session(user.id)
     delegated = store.delegate(session, "ui")
-    # Calls made by the UI count as use of the Session.
+    # A UI polling the API on its own must not stand in for the person using it.
+    for _ in range(2):
+        clock.advance(hours=5)
+        assert store.resolve(delegated) is not None
+    clock.advance(hours=2, seconds=1)
+    assert store.resolve(delegated) is None
+    assert store.resolve(session) is None
+
+
+def test_browser_requests_through_the_ui_keep_the_session_alive(tmp_path: Path) -> None:
+    clock = _Clock()
+    store = AuthStore(tmp_path / "auth.db", ROLES, clock=clock)
+    user = store.create_service_user("ci")
+    session = store.create_session(user.id)
     for _ in range(3):
         clock.advance(hours=11)
-        assert store.resolve(delegated) is not None
+        store.delegate(session, "ui")
     assert store.resolve(session) is not None
-    clock.advance(hours=13)
-    assert store.resolve(delegated) is None
+
+
+def test_ui_grants_narrow_the_delegated_token(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.create_service_user("ci")
+    store.assign_role(user.id, "operator")
+    session = store.create_session(user.id)
+    caller = store.resolve(store.delegate(session, "reports-ui", grants=["call reports"]))
+    assert caller is not None
+    assert caller.can(Action.call, "reports")
+    assert not caller.can(Action.call, "billing")
+    assert caller.narrowed
+    # A config change applies to the existing token on its next use.
+    widened = store.resolve(store.delegate(session, "reports-ui", grants=None))
+    assert widened is not None and widened.can(Action.call, "billing")
 
 
 def test_only_sessions_can_be_delegated(tmp_path: Path) -> None:

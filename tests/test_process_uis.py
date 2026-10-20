@@ -22,7 +22,7 @@ import tornado.web
 import tornado.websocket
 from typing_extensions import override
 
-from woodglue.access import resolve_roles
+from woodglue.access import Action, resolve_roles
 from woodglue.apps.server import create_app
 from woodglue.apps.system_api import build_system_namespace
 from woodglue.apps.ui_process import UiProcess, UiProcesses, UiState
@@ -91,6 +91,7 @@ class ProcessUiTestCase(tornado.testing.AsyncHTTPTestCase):
                         "command": [sys.executable, UPSTREAM_APP, "{port}", "{base_path}"],
                         "ready_path": "/ui/echo/_health",
                         "env": {"EXTRA": "1"},
+                        "grants": ["view ui:echo"],
                     },
                     "external": {"upstream": f"http://127.0.0.1:{self._external_port}"},
                 },
@@ -167,6 +168,13 @@ class TestProxyHttp(ProcessUiTestCase):
             "/rpc", method="POST", body=body, headers={"Authorization": f"Bearer {token}"}
         )
         assert json.loads(resp.body)["result"]["name"] == "echo-viewer"
+
+    def test_delegated_token_is_narrowed_to_the_ui_grants(self) -> None:
+        token = self.info(self.session("echo-viewer"))["headers"]["X-Woodglue-Token"]
+        caller = self.store.resolve(token)
+        assert caller is not None and caller.narrowed
+        assert caller.can(Action.view, "ui:echo")
+        assert not caller.can(Action.view, "ui:external")
 
     def test_delegated_token_cannot_mint_lasting_credentials(self) -> None:
         token = self.info(self.session("echo-viewer"))["headers"]["X-Woodglue-Token"]

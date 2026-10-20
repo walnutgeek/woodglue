@@ -17,6 +17,7 @@ uis:
     kind: streamlit
     app: dashboards/app.py
     label: Dashboards
+    grants: ["call reports"]      # all the app may do, whoever views it
 auth:
   roles:
     analyst: ["call reports", "view ui:dash"]
@@ -82,8 +83,18 @@ Every request and websocket woodglue forwards carries:
 - `X-Woodglue-User`: JSON with the viewer's `id`, `name`, `email`, and
   `roles`.
 - `X-Woodglue-Token`: a Delegated Token for the viewer's browser Session. It
-  calls the API with their Grants and stops working when they sign out or
-  their Session expires.
+  calls the API with the viewer's Grants, limited to the UI's `grants` when
+  set, and stops working when they sign out or their Session expires.
+
+Set `grants` to what the app needs. Without it, the app acts with everything
+the viewer may do: when an admin opens it, the app process could manage Users
+or fire any trigger. With it, the app is limited to the overlap of the
+viewer's Grants and its own, so a viewer without `call reports` still cannot
+call `reports` through the app.
+
+The app calling the API does not keep the viewer's Session alive. A Session
+ends after 12 hours without the viewer's own requests (page loads and
+websocket connections through the app count), even if the app keeps polling.
 
 woodglue removes its own Session cookie and any client-sent `X-Woodglue-*`
 header first, and keeps the app's own cookies. Websockets close when the

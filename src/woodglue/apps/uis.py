@@ -38,11 +38,16 @@ USER_HEADER = "X-Woodglue-User"
 TOKEN_HEADER = "X-Woodglue-Token"
 
 
-def identity_headers(auth: Authentication, store: AuthStore | None, ui_name: str) -> dict[str, str]:
+def identity_headers(
+    auth: Authentication,
+    store: AuthStore | None,
+    ui_name: str,
+    grants: list[str] | None = None,
+) -> dict[str, str]:
     """
     The headers that tell a UI's server who is viewing (see
     `woodglue.ui_support`): the User as JSON, and for a browser Session a
-    Delegated Token for this UI.
+    Delegated Token for this UI, narrowed to the UI's `grants`.
     """
     headers: dict[str, str] = {}
     caller = auth.caller
@@ -57,7 +62,7 @@ def identity_headers(auth: Authentication, store: AuthStore | None, ui_name: str
         )
     if store is not None and auth.via == AuthVia.cookie and auth.session_secret:
         try:
-            headers[TOKEN_HEADER] = store.delegate(auth.session_secret, ui_name)
+            headers[TOKEN_HEADER] = store.delegate(auth.session_secret, ui_name, grants)
         except ValueError:
             pass
     return headers
@@ -149,7 +154,10 @@ class VerifyHandler(tornado.web.RequestHandler):
             and not auth.caller.can(Action.view, f"ui:{name}")
         ):
             raise tornado.web.HTTPError(403)
-        for header, value in identity_headers(auth, settings.get("auth_store"), name).items():
+        grants = entry.grants if entry is not None else None
+        for header, value in identity_headers(
+            auth, settings.get("auth_store"), name, grants
+        ).items():
             self.set_header(header, value)
         self.set_status(200)
 

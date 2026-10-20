@@ -138,3 +138,11 @@ def test_ui_names_are_validated() -> None:
             WoodglueConfig.model_validate({"namespaces": {}, "uis": bad})
     with pytest.raises(ValueError):
         WoodglueConfig.model_validate({"namespaces": {}, "ui": {"default": "nope"}})
+    with pytest.raises(ValueError, match="Process-backed"):
+        WoodglueConfig.model_validate(
+            {"namespaces": {}, "uis": {"r": {"path": "x", "grants": ["call r"]}}}
+        )
+    with pytest.raises(ValueError, match="Unknown action"):
+        WoodglueConfig.model_validate(
+            {"namespaces": {}, "uis": {"r": {"command": ["srv"], "grants": ["fly r"]}}}
+        )

@@ -15,8 +15,10 @@ A **Session** is the credential behind a browser's cookie. It ends after
 woodglue does not re-check with the Identity Provider in between.
 
 A **Delegated Token** lets a Process-backed UI call the API as the User viewing
-it. It belongs to one Session and one UI, carries the Session's Grants, counts
-as use of the Session, and ends with it.
+it. It belongs to one Session and one UI, carries the Session's Grants narrowed
+to the UI's own `grants`, and ends with the Session. Its use does not keep the
+Session alive: only the person's own requests, including those through the UI,
+do.
 
 The built-in `admin` Service User owns the tokens that `wgl token` prints. Tokens
 from the pre-Users `tokens` table are migrated to it on first open, so existing
@@ -546,11 +548,17 @@ class AuthStore:
             )
         return secret
 
-    def delegate(self, session_secret: str, ui_name: str) -> str:
+    def delegate(self, session_secret: str, ui_name: str, grants: list[str] | None = None) -> str:
         """
         The Delegated Token for a UI acting on behalf of a Session, created on
-        first use. Raises `ValueError` unless `session_secret` is a live Session.
+        first use. `grants`, the UI's configured Grants, narrows it like a
+        narrowed Personal Access Token, and is updated on each call so a config
+        change applies at once. Raises `ValueError` unless `session_secret` is
+        a live Session.
         """
+        grants_json = (
+            json.dumps([str(Grant.parse(g)) for g in grants]) if grants is not None else None
+        )
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM credentials WHERE secret = ? AND kind = ?",
@@ -563,35 +571,42 @@ class AuthStore:
                 (row["id"], CredentialKind.delegated, ui_name),
             ).fetchone()
             if existing is not None:
+                conn.execute(
+                    "UPDATE credentials SET grants = ? WHERE secret = ?",
+                    (grants_json, existing["secret"]),
+                )
                 return existing["secret"]
             secret = secrets.token_urlsafe(32)
             conn.execute(
                 "INSERT INTO credentials "
-                + "(id, secret, kind, user_id, name, created_at, parent_id) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                + "(id, secret, kind, user_id, name, grants, created_at, parent_id) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     _new_id("dlg"),
                     secret,
                     CredentialKind.delegated,
                     row["user_id"],
                     ui_name,
+                    grants_json,
                     self.clock().isoformat(),
                     row["id"],
                 ),
             )
             return secret
 
-    def _session_alive(self, conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> bool:
+    def _session_alive(
+        self, conn: sqlite3.Connection, row: sqlite3.Row, now: datetime, *, use: bool = True
+    ) -> bool:
         """
         Apply a Session's limits, deleting it (and its Delegated Tokens) once it
-        has expired, and record its use.
+        has expired, and with `use`, record that it was used.
         """
         expires_at = _parse_time(row["expires_at"])
         last_used = _parse_time(row["last_used_at"]) or now
         if (expires_at is not None and expires_at <= now) or last_used + self.session_idle <= now:
             conn.execute("DELETE FROM credentials WHERE id = ?", (row["id"],))
             return False
-        if now - last_used >= _TOUCH_INTERVAL:
+        if use and now - last_used >= _TOUCH_INTERVAL:
             conn.execute(
                 "UPDATE credentials SET last_used_at = ? WHERE id = ?",
                 (now.isoformat(), row["id"]),
@@ -625,8 +640,8 @@ class AuthStore:
     def resolve(self, secret: str) -> Caller | None:
         """
         Return the Caller for a credential secret, or `None` if it is not valid
-        now. Resolving a Session, or a Delegated Token of one, counts as using
-        the Session.
+        now. Resolving a Session counts as using it; resolving one of its
+        Delegated Tokens does not.
         """
         now = self.clock()
         with self._connect() as conn:
@@ -647,7 +662,9 @@ class AuthStore:
                 session = conn.execute(
                     "SELECT * FROM credentials WHERE id = ?", (session_id,)
                 ).fetchone()
-                if session is None or not self._session_alive(conn, session, now):
+                # A UI calling the API on its own is not the person using the Session.
+                used = row["ckind"] == CredentialKind.session
+                if session is None or not self._session_alive(conn, session, now, use=used):
                     return None
             user = self._user_from_row(conn, row)
         return self._caller(user, row["cid"], row["ckind"], row["grants"])

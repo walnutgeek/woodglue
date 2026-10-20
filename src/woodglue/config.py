@@ -100,8 +100,13 @@ class UiEntry(BaseModel):
       serve under `/ui/<name>` too.
 
     A Process-backed UI (all but `path`) gets the viewing User's identity in
-    request headers (see `woodglue.ui_support`). `ready_path` is what woodglue
-    polls until the process answers; `dev` turns on the framework's reload.
+    request headers (see `woodglue.ui_support`), including a Delegated Token to
+    call the API as them. `grants` limits that token to the overlap of the
+    viewer's Grants and these, e.g. `["call reports", "read reports"]`, so a
+    compromised UI process cannot use everything an admin viewer may. Without
+    `grants` the token carries all of the viewer's Grants. `ready_path` is what
+    woodglue polls until the process answers; `dev` turns on the framework's
+    reload.
 
     Opening any UI needs `view` on `ui:<name>` unless `public`.
     """
@@ -115,6 +120,7 @@ class UiEntry(BaseModel):
     env: dict[str, str] = {}
     ready_path: str | None = None
     dev: bool = False
+    grants: list[str] | None = None
     label: str | None = None
     spa_fallback: bool = True
     public: bool = False
@@ -126,6 +132,14 @@ class UiEntry(BaseModel):
             raise ValueError("A UI needs exactly one of path, kind, command, or upstream")
         if self.kind == UiKind.streamlit and not self.app:
             raise ValueError("kind: streamlit needs app, the path of the Streamlit script")
+        if self.grants is not None:
+            if self.is_static:
+                raise ValueError(
+                    "grants apply to Process-backed UIs; a Static UI runs in the browser "
+                    + "with the viewer's Session"
+                )
+            for grant in self.grants:
+                Grant.parse(grant)
         return self
 
     @property

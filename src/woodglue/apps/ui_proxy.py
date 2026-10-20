@@ -12,7 +12,8 @@ for Streamlit. Before forwarding, the proxy:
 - removes `Authorization` and any client-sent `X-Woodglue-*` header;
 - adds `X-Woodglue-User` (JSON with `id`, `name`, `email`, `roles`) and, for
   a browser Session, `X-Woodglue-Token`, a Delegated Token the process uses to
-  call the API as that User (see `woodglue.ui_support`).
+  call the API as that User, limited to the UI's `grants` (see
+  `woodglue.ui_support`).
 
 Response bodies pass through as they arrive, so event streams and long polls
 work; request bodies are read in full first.
@@ -206,7 +207,9 @@ class UiProxyHandler(tornado.websocket.WebSocketHandler):
             headers["X-Forwarded-For"] = self.request.remote_ip
         if self.auth is not None:
             store: AuthStore | None = self.application.settings.get("auth_store")
-            for name, value in identity_headers(self.auth, store, self.ui_name).items():
+            entry = self.application.settings["config"].uis.get(self.ui_name)
+            grants = entry.grants if entry is not None else None
+            for name, value in identity_headers(self.auth, store, self.ui_name, grants).items():
                 headers[name] = value
         return headers
 
