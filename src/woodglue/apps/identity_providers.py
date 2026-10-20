@@ -1,5 +1,6 @@
 """
-Signing in through Identity Providers: OpenID Connect and GitHub.
+Signing in through Identity Providers: OpenID Connect, GitHub, and trusted
+reverse proxies.
 
 woodglue is its own OAuth client (see `docs/adr/0001`). A sign-in is the
 authorization code flow with PKCE:
@@ -17,6 +18,10 @@ authorization code flow with PKCE:
 
 Admission and claim-to-Role mapping are re-evaluated at every sign-in.
 
+A trusted proxy (`JwtProxy`, `HeaderProxy`) has no round trip: it asserts the
+identity on every request, and `woodglue.apps.authn` turns the first valid
+assertion into a Session.
+
 Pending sign-ins live in memory for ten minutes, so a restart in the middle of
 one only means signing in again.
 """
@@ -25,10 +30,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import logging
 import secrets
 import time
+import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -37,6 +44,7 @@ from urllib.parse import urlencode
 
 import jwt
 import tornado.httpclient
+import tornado.httputil
 from typing_extensions import override
 
 from woodglue.access import ADMIN_ROLE
@@ -349,7 +357,165 @@ class GitHubClient(ProviderClient):
 
 
 def make_clients(providers: list[ProviderConfig]) -> Mapping[str, ProviderClient]:
+    """Clients for the providers people sign in with through the login page."""
     clients: dict[str, ProviderClient] = {}
     for p in providers:
-        clients[p.id] = GitHubClient(p) if p.kind == ProviderKind.github else OidcClient(p)
+        if p.kind == ProviderKind.github:
+            clients[p.id] = GitHubClient(p)
+        elif p.kind == ProviderKind.oidc:
+            clients[p.id] = OidcClient(p)
     return clients
+
+
+class TrustedProxy(ABC):
+    """Reads the identity a trusted reverse proxy asserts on each request."""
+
+    config: ProviderConfig
+
+    def __init__(self, config: ProviderConfig) -> None:
+        self.config = config
+
+    @abstractmethod
+    def identify(self, request: tornado.httputil.HTTPServerRequest) -> ExternalIdentity | None:
+        """
+        The asserted identity, or `None` if the request carries none this proxy
+        can speak for. Raises `SignInError` for an assertion that fails checks.
+        """
+
+
+class JwksCache:
+    """
+    Signing keys from a JWKS URL (`https://` or `file://`), refetched hourly
+    and when a token names an unknown key id, but at most once a minute so
+    forged key ids cannot make woodglue hammer the URL. Fetching blocks the
+    server briefly; it happens at the first request and on key rotation.
+    """
+
+    url: str
+    _keys: jwt.PyJWKSet | None
+    _fetched_at: float
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self._keys = None
+        self._fetched_at = 0.0
+
+    def _fetch(self) -> None:
+        try:
+            with urllib.request.urlopen(self.url, timeout=5) as resp:
+                self._keys = jwt.PyJWKSet.from_dict(json.load(resp))
+        except (OSError, ValueError, jwt.PyJWTError) as exc:
+            raise SignInError(f"Could not load signing keys from {self.url}: {exc}") from exc
+        finally:
+            self._fetched_at = time.monotonic()
+
+    def key(self, kid: str | None) -> jwt.PyJWK:
+        age = time.monotonic() - self._fetched_at
+        if self._keys is None or age > 3600:
+            self._fetch()
+        for attempt in range(2):
+            assert self._keys is not None
+            for key in self._keys.keys:
+                if kid is None or key.key_id == kid:
+                    return key
+            if attempt == 0 and time.monotonic() - self._fetched_at > 60:
+                self._fetch()
+            else:
+                break
+        raise SignInError(f"No signing key {kid!r} at {self.url}")
+
+
+class JwtProxy(TrustedProxy):
+    """Verifies a JWT the proxy puts in a header, against keys from `jwks_url`."""
+
+    _jwks: JwksCache
+
+    def __init__(self, config: ProviderConfig) -> None:
+        super().__init__(config)
+        assert config.jwks_url is not None
+        self._jwks = JwksCache(config.jwks_url)
+
+    @override
+    def identify(self, request: tornado.httputil.HTTPServerRequest) -> ExternalIdentity | None:
+        assert self.config.header is not None
+        token = request.headers.get(self.config.header)
+        if not token:
+            return None
+        try:
+            key = self._jwks.key(jwt.get_unverified_header(token).get("kid"))
+            claims: dict[str, Any] = jwt.decode(
+                token,
+                key,
+                algorithms=_ID_TOKEN_ALGORITHMS,
+                audience=self.config.audience,
+                issuer=self.config.issuer,
+                options={"require": ["exp", "sub"]},
+            )
+        except jwt.PyJWTError as exc:
+            raise SignInError(f"Invalid {self.config.header}: {exc}") from exc
+        email = claims.get(self.config.email_claim)
+        groups = claims.get(self.config.groups_claim) or []
+        if isinstance(groups, str):
+            groups = [groups]
+        return ExternalIdentity(
+            provider=self.config.id,
+            subject=str(claims["sub"]),
+            email=str(email) if email else None,
+            # The proxy's own Identity Provider verified the address before signing.
+            email_verified=bool(email),
+            name=str(claims.get("name") or email or claims["sub"]),
+            groups=tuple(str(g) for g in groups),
+        )
+
+
+class HeaderProxy(TrustedProxy):
+    """Trusts plain identity headers, but only from `trusted_sources`."""
+
+    _networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network]
+
+    def __init__(self, config: ProviderConfig) -> None:
+        super().__init__(config)
+        self._networks = [ipaddress.ip_network(s, strict=False) for s in config.trusted_sources]
+
+    def _trusted(self, remote_ip: str | None) -> bool:
+        if not remote_ip:
+            return False
+        try:
+            address = ipaddress.ip_address(remote_ip)
+        except ValueError:
+            return False
+        return any(address in network for network in self._networks)
+
+    @override
+    def identify(self, request: tornado.httputil.HTTPServerRequest) -> ExternalIdentity | None:
+        assert self.config.header is not None
+        email = request.headers.get(self.config.header, "").strip()
+        if not email:
+            return None
+        if not self._trusted(request.remote_ip):
+            logger.warning(
+                "Ignoring %s from untrusted address %s", self.config.header, request.remote_ip
+            )
+            return None
+        name = request.headers.get(self.config.name_header, "") if self.config.name_header else ""
+        groups_raw = (
+            request.headers.get(self.config.groups_header, "") if self.config.groups_header else ""
+        )
+        return ExternalIdentity(
+            provider=self.config.id,
+            subject=email.lower(),
+            email=email,
+            email_verified=True,
+            name=name.strip() or email,
+            groups=tuple(g.strip() for g in groups_raw.split(",") if g.strip()),
+        )
+
+
+def make_trusted_proxies(providers: list[ProviderConfig]) -> list[TrustedProxy]:
+    proxies: list[TrustedProxy] = []
+    for p in providers:
+        if p.kind == ProviderKind.trusted_proxy_jwt:
+            proxies.append(JwtProxy(p))
+        elif p.kind == ProviderKind.trusted_proxy_header:
+            proxies.append(HeaderProxy(p))
+    return proxies

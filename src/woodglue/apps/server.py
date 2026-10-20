@@ -10,7 +10,12 @@ from typing import Any
 import tornado.web
 from lythonic.compose.namespace import Namespace
 
-from woodglue.apps.identity_providers import PendingSignIns, ProviderClient, make_clients
+from woodglue.apps.identity_providers import (
+    PendingSignIns,
+    ProviderClient,
+    make_clients,
+    make_trusted_proxies,
+)
 from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
 from woodglue.apps.ui_process import UiProcesses
@@ -132,6 +137,7 @@ def create_app(
         auth_enabled=config.auth.enabled,
         auth_store=auth_store,
         login_providers=login_providers,
+        trusted_proxies=make_trusted_proxies(config.auth.providers) if auth_store else [],
         pending_sign_ins=PendingSignIns(),
         ui_processes=ui_processes,
         ui_sockets=UiSockets(),

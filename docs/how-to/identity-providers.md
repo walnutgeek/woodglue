@@ -122,3 +122,50 @@ an unverified address cannot take over an account.
 The login page always offers a Personal Access Token form, and scripts keep
 using `Authorization: Bearer`. Signed-in people create their own tokens on the
 Console's Tokens page.
+
+## Behind an authenticating proxy
+
+When a proxy such as Cloudflare Access, Google IAP, or oauth2-proxy already
+signs people in, let woodglue trust what it asserts instead. There is no login
+page: the first request carrying a valid assertion signs the person in, with
+the same `admit` rules and Roles as above, and starts a Session.
+
+A signed JWT in a header is the safe choice, since woodglue checks the
+signature, issuer, audience, and expiry:
+
+```yaml
+auth:
+  providers:
+    - id: cloudflare
+      kind: trusted_proxy_jwt
+      header: Cf-Access-Jwt-Assertion
+      jwks_url: https://<team>.cloudflareaccess.com/cdn-cgi/access/certs
+      issuer: https://<team>.cloudflareaccess.com
+      audience: <application audience tag>
+      admit: {email_domains: [example.com]}
+      default_roles: [viewer]
+
+    - id: iap
+      kind: trusted_proxy_jwt
+      header: x-goog-iap-jwt-assertion
+      jwks_url: https://www.gstatic.com/iap/verify/public_key-jwk
+      issuer: https://cloud.google.com/iap
+      audience: /projects/<number>/global/backendServices/<id>
+      admit: {email_domains: [example.com]}
+```
+
+A proxy that sends plain headers (oauth2-proxy with `--set-xauthrequest`, many
+internal gateways) can be trusted too, but only from its own addresses, since
+anyone reaching woodglue directly could send the same header:
+
+```yaml
+    - id: oauth2-proxy
+      kind: trusted_proxy_header
+      header: X-Forwarded-Email
+      name_header: X-Forwarded-Preferred-Username
+      groups_header: X-Forwarded-Groups      # comma-separated
+      trusted_sources: [127.0.0.1/32, 10.0.0.0/8]
+      admit: {groups: [woodglue-users]}
+```
+
+Keep woodglue unreachable except through the proxy in either case.

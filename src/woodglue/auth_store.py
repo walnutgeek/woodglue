@@ -329,6 +329,15 @@ class AuthStore:
             if disabled:
                 conn.execute("DELETE FROM credentials WHERE user_id = ?", (user_id,))
 
+    def linked_user(self, provider: str, subject: str) -> str | None:
+        """The id of the User linked to an Identity Provider's subject, if any."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM linked_identities WHERE provider = ? AND subject = ?",
+                (provider, subject),
+            ).fetchone()
+        return row["user_id"] if row else None
+
     def sign_in_person(
         self,
         provider: str,

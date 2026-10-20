@@ -12,6 +12,7 @@ the optional top-level `logging:` section; see `woodglue.log_setup`.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from collections.abc import Mapping
@@ -190,6 +191,12 @@ def expand_env(text: str, env: Mapping[str, str]) -> str:
 class ProviderKind(StrEnum):
     oidc = "oidc"
     github = "github"
+    trusted_proxy_jwt = "trusted_proxy_jwt"
+    trusted_proxy_header = "trusted_proxy_header"
+
+    @property
+    def is_trusted_proxy(self) -> bool:
+        return self in (ProviderKind.trusted_proxy_jwt, ProviderKind.trusted_proxy_header)
 
 
 class AdmitRules(BaseModel):
@@ -218,6 +225,19 @@ class ProviderConfig(BaseModel):
       Connect providers; `issuer` is the URL its discovery document hangs off.
     - `kind: github` uses GitHub's OAuth2; `github_url` and `github_api_url`
       point at GitHub Enterprise when needed.
+    - `kind: trusted_proxy_jwt` trusts a reverse proxy that signs each request's
+      identity as a JWT in `header`, e.g. Cloudflare Access
+      (`Cf-Access-Jwt-Assertion`), Google IAP (`x-goog-iap-jwt-assertion`), or
+      oauth2-proxy. The JWT is checked against `jwks_url`, `issuer`, and
+      `audience`; `email_claim` and `groups_claim` name the claims to read.
+    - `kind: trusted_proxy_header` trusts a plain `header` such as
+      `X-Forwarded-Email`, with optional `name_header` and `groups_header`
+      (comma-separated), but only from `trusted_sources` (IPs or CIDRs).
+      Anyone who reaches woodglue without the proxy can forge the header, so
+      `trusted_sources` is required.
+
+    With a trusted proxy there is no login page: the first request carrying a
+    valid assertion signs the person in and starts a Session.
 
     `client_secret` (and any other string) may reference environment variables
     as `${NAME}`. `default_roles` and the Roles that `group_roles` maps a
@@ -229,10 +249,17 @@ class ProviderConfig(BaseModel):
     kind: ProviderKind
     label: str | None = None
     issuer: str | None = None
-    client_id: str
-    client_secret: str
+    client_id: str | None = None
+    client_secret: str | None = None
     scopes: list[str] | None = None
     groups_claim: str = "groups"
+    email_claim: str = "email"
+    header: str | None = None
+    jwks_url: str | None = None
+    audience: str | None = None
+    name_header: str | None = None
+    groups_header: str | None = None
+    trusted_sources: list[str] = []
     trust_email: bool = False
     """
     Treat the `email` claim as verified even without `email_verified: true`.
@@ -245,15 +272,24 @@ class ProviderConfig(BaseModel):
     default_roles: list[str] = []
     group_roles: dict[str, list[str]] = {}
 
-    @field_validator("client_id", "client_secret", "issuer")
+    @field_validator("client_id", "client_secret", "issuer", "audience")
     @classmethod
     def _expand_env(cls, value: str | None) -> str | None:
         return expand_env(value, os.environ) if value is not None else None
 
     @model_validator(mode="after")
     def _check(self) -> ProviderConfig:
-        if self.kind == ProviderKind.oidc and not self.issuer:
-            raise ValueError(f"Provider '{self.id}': kind oidc needs an issuer")
+        required: dict[ProviderKind, list[str]] = {
+            ProviderKind.oidc: ["issuer", "client_id", "client_secret"],
+            ProviderKind.github: ["client_id", "client_secret"],
+            ProviderKind.trusted_proxy_jwt: ["header", "jwks_url", "issuer", "audience"],
+            ProviderKind.trusted_proxy_header: ["header", "trusted_sources"],
+        }
+        missing = [f for f in required[self.kind] if not getattr(self, f)]
+        if missing:
+            raise ValueError(f"Provider '{self.id}': kind {self.kind} needs {', '.join(missing)}")
+        for source in self.trusted_sources:
+            ipaddress.ip_network(source, strict=False)
         if self.admit.is_empty():
             raise ValueError(
                 f"Provider '{self.id}': admit needs at least one rule "
