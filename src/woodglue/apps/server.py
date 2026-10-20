@@ -20,7 +20,7 @@ from woodglue.apps.llm_docs import build_method_index
 from woodglue.apps.rpc import JsonRpcHandler
 from woodglue.apps.ui_process import UiProcesses
 from woodglue.apps.ui_proxy import UiProxyHandler, UiSockets
-from woodglue.apps.uis import UiStaticHandler, ui_path
+from woodglue.apps.uis import UiStaticHandler, VerifyHandler, ui_path
 from woodglue.auth_store import AuthStore
 from woodglue.config import NamespaceEntry, WoodglueConfig
 from woodglue.engine import EngineRegistry
@@ -85,6 +85,7 @@ def create_app(
         handlers.append((r"/auth/logout", LogoutHandler))
         handlers.append((r"/auth/start/([^/]+)", StartSignInHandler))
         handlers.append((r"/auth/callback/([^/]+)", SignInCallbackHandler))
+        handlers.append((r"/auth/verify", VerifyHandler))
 
     if config.ui.enabled:
         console_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"

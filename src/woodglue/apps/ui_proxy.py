@@ -21,7 +21,6 @@ and within `SWEEP_SECONDS` when it expires or its User is disabled.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Awaitable
 from typing import Any
@@ -32,9 +31,9 @@ import tornado.ioloop
 import tornado.websocket
 from typing_extensions import override
 
-from woodglue.apps.authn import SESSION_COOKIE, Authentication, AuthVia, authenticate
+from woodglue.apps.authn import SESSION_COOKIE, Authentication, authenticate
 from woodglue.apps.ui_process import UiProcesses
-from woodglue.apps.uis import require_view
+from woodglue.apps.uis import identity_headers, require_view
 from woodglue.auth_store import AuthStore
 
 logger = logging.getLogger(__name__)
@@ -150,22 +149,10 @@ class UiProxyHandler(tornado.websocket.WebSocketHandler):
         headers["X-Forwarded-Host"] = self.request.host
         if self.request.remote_ip:
             headers["X-Forwarded-For"] = self.request.remote_ip
-        caller = self.auth.caller if self.auth else None
-        if caller is not None:
-            headers["X-Woodglue-User"] = json.dumps(
-                {
-                    "id": caller.user_id,
-                    "name": caller.name,
-                    "email": caller.email,
-                    "roles": list(caller.roles),
-                }
-            )
-        if self.auth is not None and self.auth.via == AuthVia.cookie and self.auth.session_secret:
-            store: AuthStore = self.application.settings["auth_store"]
-            try:
-                headers["X-Woodglue-Token"] = store.delegate(self.auth.session_secret, self.ui_name)
-            except ValueError:
-                pass
+        if self.auth is not None:
+            store: AuthStore | None = self.application.settings.get("auth_store")
+            for name, value in identity_headers(self.auth, store, self.ui_name).items():
+                headers[name] = value
         return headers
 
     # HTTP

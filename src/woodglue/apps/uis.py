@@ -10,6 +10,7 @@ UI marked `public` skips both checks; the API it calls still needs a Caller.
 
 from __future__ import annotations
 
+import json
 import os
 from urllib.parse import quote
 
@@ -17,7 +18,8 @@ import tornado.web
 from typing_extensions import override
 
 from woodglue.access import Action
-from woodglue.apps.authn import authenticate
+from woodglue.apps.authn import Authentication, AuthVia, authenticate
+from woodglue.auth_store import AuthStore
 
 CONSOLE = "console"
 
@@ -30,6 +32,35 @@ def ui_path(name: str) -> str:
     ('/console/', '/ui/reports/')
     """
     return "/console/" if name == CONSOLE else f"/ui/{name}/"
+
+
+USER_HEADER = "X-Woodglue-User"
+TOKEN_HEADER = "X-Woodglue-Token"
+
+
+def identity_headers(auth: Authentication, store: AuthStore | None, ui_name: str) -> dict[str, str]:
+    """
+    The headers that tell a UI's server who is viewing (see
+    `woodglue.ui_support`): the User as JSON, and for a browser Session a
+    Delegated Token for this UI.
+    """
+    headers: dict[str, str] = {}
+    caller = auth.caller
+    if caller is not None:
+        headers[USER_HEADER] = json.dumps(
+            {
+                "id": caller.user_id,
+                "name": caller.name,
+                "email": caller.email,
+                "roles": list(caller.roles),
+            }
+        )
+    if store is not None and auth.via == AuthVia.cookie and auth.session_secret:
+        try:
+            headers[TOKEN_HEADER] = store.delegate(auth.session_secret, ui_name)
+        except ValueError:
+            pass
+    return headers
 
 
 def require_view(handler: tornado.web.RequestHandler, ui_name: str) -> bool:
@@ -85,3 +116,53 @@ class UiStaticHandler(tornado.web.StaticFileHandler):
         ):
             absolute_path = os.path.join(root, self.default_filename)
         return super().validate_absolute_path(root, absolute_path)
+
+
+class VerifyHandler(tornado.web.RequestHandler):
+    """
+    GET `/auth/verify`: access check for a reverse proxy's `forward_auth`
+    (see `docs/adr/0004`). The UI is `?ui=<name>`, or taken from the
+    `X-Forwarded-Uri` the proxy sends (`/ui/<name>/...` or `/console/...`).
+
+    Answers 200 with the identity headers for an allowed request, a redirect to
+    the login page (returning to the original URI) without a Session, 403
+    without the `view` Grant, and 400 if no UI can be named.
+    """
+
+    @override
+    def get(self) -> None:
+        uri = self.request.headers.get("X-Forwarded-Uri", "/")
+        name = self.get_argument("ui", None) or _ui_name_from_path(uri)
+        if name is None:
+            raise tornado.web.HTTPError(400, "No UI named by ?ui= or X-Forwarded-Uri")
+        settings = self.application.settings
+        entry = settings["config"].uis.get(name)
+        auth = authenticate(self)
+        if auth.caller is None and not (entry is not None and entry.public):
+            self.redirect(f"/auth/login?next={quote(uri, safe='')}")
+            return
+        public = entry is not None and entry.public
+        if (
+            not public
+            and auth.caller is not None
+            and not auth.caller.can(Action.view, f"ui:{name}")
+        ):
+            raise tornado.web.HTTPError(403)
+        for header, value in identity_headers(auth, settings.get("auth_store"), name).items():
+            self.set_header(header, value)
+        self.set_status(200)
+
+
+def _ui_name_from_path(path: str) -> str | None:
+    """
+    >>> _ui_name_from_path("/ui/reports/runs/1"), _ui_name_from_path("/console/x")
+    ('reports', 'console')
+    >>> _ui_name_from_path("/rpc") is None
+    True
+    """
+    parts = path.split("?", 1)[0].split("/")
+    if len(parts) > 2 and parts[1] == "ui" and parts[2]:
+        return parts[2]
+    if len(parts) > 1 and parts[1] == CONSOLE:
+        return CONSOLE
+    return None

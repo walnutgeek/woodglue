@@ -17,6 +17,7 @@ Commands:
                                    Create a Personal Access Token; prints the secret
         tokens <user>              List a User's tokens (never the secrets)
         revoke <token_id>
+    wgl caddy config <site>   Print a Caddyfile serving this instance at <site>
 
 `wgl token` prints the tokens of the built-in `admin` Service User, which holds
 every Grant. `wgl start` never prints a token, since its output may be captured
@@ -482,6 +483,27 @@ def user_revoke(ctx: RunContext, token_id: str) -> None:
     """Revoke a Personal Access Token"""
     if not _auth_store(ctx).revoke_token(token_id):
         sys.exit(f"No token {token_id!r}")
+
+
+class CaddyGroup(BaseModel):
+    """Run woodglue behind Caddy"""
+
+
+caddy_at = ActionTree(CaddyGroup)
+caddy_at.name = "caddy"
+main_at.actions[caddy_at.name] = caddy_at
+
+
+@caddy_at.actions.wrap
+def config(ctx: RunContext, site: str) -> None:
+    """Print a Caddyfile serving this instance at <site>, e.g. wg.example.com"""
+    from woodglue.caddy import caddyfile
+
+    root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
+    data_dir = root.data.resolve()
+    cfg = load_config(data_dir)
+    _resolve_storage(cfg, data_dir)
+    print(caddyfile(cfg, site), end="")
 
 
 def main() -> None:
