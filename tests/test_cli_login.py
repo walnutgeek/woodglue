@@ -9,6 +9,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -187,7 +188,8 @@ class TestCliFlow(CliLoginTestCase):
                 None, lambda: login(server, "wgl test", open_browser=self.fake_browser)
             )
             assert load_credentials()[server].token == stored.token
-            assert (Path(self._tmp.name) / "credentials.json").stat().st_mode & 0o077 == 0
+            if sys.platform != "win32":  # Windows has no POSIX file modes
+                assert (Path(self._tmp.name) / "credentials.json").stat().st_mode & 0o077 == 0
 
             me = await WoodglueClient(server).call("system.whoami")
             assert me["name"] == "dev"
