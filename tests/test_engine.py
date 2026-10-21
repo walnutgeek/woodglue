@@ -123,17 +123,16 @@ def _make_trigger_engine(tmp: Path) -> NamespaceEngine:
     return create_engine(mount, ns)
 
 
-def test_activate_triggers_keeps_paused_trigger_disabled_on_restart() -> None:
-    from woodglue.engine import activate_triggers
+def test_activate_configured_keeps_paused_trigger_disabled_on_restart() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         engine = _make_trigger_engine(Path(tmp))
         with patch("time.time", return_value=1000.0):
-            activate_triggers(engine)
+            engine.trigger_manager.activate_configured()
         engine.trigger_manager.deactivate("tick")
 
         with patch("time.time", return_value=2000.0):
-            result = activate_triggers(engine)
+            result = engine.trigger_manager.activate_configured()
 
         assert result.activated == []
         assert result.left_disabled == ["tick"]
@@ -143,43 +142,8 @@ def test_activate_triggers_keeps_paused_trigger_disabled_on_restart() -> None:
         assert activation["last_run_at"] == 1000.0
 
 
-def test_activate_triggers_activates_new_trigger() -> None:
-    from woodglue.engine import activate_triggers
-
-    with tempfile.TemporaryDirectory() as tmp:
-        engine = _make_trigger_engine(Path(tmp))
-        assert engine.trigger_store.get_activation("tick") is None
-
-        result = activate_triggers(engine)
-
-        assert result.activated == ["tick"]
-        assert result.left_disabled == []
-        activation = engine.trigger_store.get_activation("tick")
-        assert activation is not None
-        assert activation["status"] == "active"
-
-
-def test_activate_triggers_keeps_active_trigger_last_run_at() -> None:
-    from woodglue.engine import activate_triggers
-
-    with tempfile.TemporaryDirectory() as tmp:
-        engine = _make_trigger_engine(Path(tmp))
-        with patch("time.time", return_value=1000.0):
-            activate_triggers(engine)
-
-        with patch("time.time", return_value=2000.0):
-            result = activate_triggers(engine)
-
-        assert result.activated == ["tick"]
-        activation = engine.trigger_store.get_activation("tick")
-        assert activation is not None
-        assert activation["status"] == "active"
-        assert activation["last_run_at"] == 1000.0
-
-
 def test_activate_trigger_api_reactivates_trigger_left_disabled() -> None:
     from woodglue.apps.system_api import build_system_namespace
-    from woodglue.engine import activate_triggers
 
     with tempfile.TemporaryDirectory() as tmp:
         engine = _make_trigger_engine(Path(tmp))
@@ -188,9 +152,9 @@ def test_activate_trigger_api_reactivates_trigger_left_disabled() -> None:
         system_ns = build_system_namespace({}, registry)
 
         with patch("time.time", return_value=1000.0):
-            activate_triggers(engine)
+            engine.trigger_manager.activate_configured()
         system_ns.get("deactivate_trigger")(namespace="test_ns", name="tick")
-        activate_triggers(engine)
+        engine.trigger_manager.activate_configured()
 
         with patch("time.time", return_value=3000.0):
             activation = system_ns.get("activate_trigger")(namespace="test_ns", name="tick")

@@ -192,7 +192,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
     # Mount and build engines for namespaces with run_engine=True
     from lythonic.compose.engine import StorageConfig as LythStorageConfig
 
-    from woodglue.engine import EngineRegistry, activate_triggers, create_engine
+    from woodglue.engine import EngineRegistry, create_engine
 
     registry = EngineRegistry()
     for prefix, (ns, entry) in namespaces.items():
@@ -204,7 +204,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
             ns.mount(storage)
             engine = create_engine(mount, ns)
             with mount.activate():
-                triggers = activate_triggers(engine)
+                triggers = engine.trigger_manager.activate_configured()
             registry.register(engine)
             if triggers.activated:
                 print(f"  Triggers activated for '{prefix}': {', '.join(triggers.activated)}")

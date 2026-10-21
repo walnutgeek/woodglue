@@ -1099,43 +1099,16 @@ wheels = [
 
 [[package]]
 name = "lythonic"
-source = { editable = "../lythonic" }
+version = "0.0.28"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "croniter" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "croniter", specifier = ">=6.2.2" },
-    { name = "numpy", marker = "extra == 'numpy'" },
-    { name = "pandas", marker = "extra == 'pandas'" },
-    { name = "polars", marker = "extra == 'polars'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
-    { name = "pydantic" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-]
-provides-extras = ["numpy", "pandas", "polars", "pyarrow"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "basedpyright", specifier = ">=1.32.1" },
-    { name = "codespell", specifier = ">=2.4.1" },
-    { name = "coverage", specifier = ">=7.6.7" },
-    { name = "funlog", specifier = ">=0.2.1" },
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-asyncio", specifier = ">=1.2.0" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-    { name = "pytest-sugar", specifier = ">=1.0.0" },
-    { name = "rich", specifier = ">=14.0.0" },
-    { name = "ruff", specifier = ">=0.14.2" },
-]
-docs = [
-    { name = "markdown-pycon", specifier = ">=1.0.1" },
-    { name = "mkdocs", specifier = ">=1.6" },
-    { name = "mkdocs-material", specifier = ">=9.5" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27" },
+sdist = { url = "https://files.pythonhosted.org/packages/a4/fc/944beb250dc5b4f9db3b1c71b7e26b381fb8f04711829ea5913f85462004/lythonic-0.0.28.tar.gz", hash = "sha256:5cc3afdf88ab7505ea82ebf8216641e975f0aec8c3ce4bb91c07beb9c1021f55", size = 300666, upload-time = "2026-10-21T00:14:16.444Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/22/f32a569ae9b4a30b8cc2c0568036a9b87af942c3f66801ac64b052750f69/lythonic-0.0.28-py3-none-any.whl", hash = "sha256:8f9d8aca7db98a820711aac4d29c2068f50cd39d169a7d49177b8bc9d2ae514a", size = 101406, upload-time = "2026-10-21T00:14:15.226Z" },
 ]
 
 [[package]]
@@ -2628,7 +2601,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography" },
-    { name = "lythonic", editable = "../lythonic" },
+    { name = "lythonic", specifier = ">=0.0.28" },
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },

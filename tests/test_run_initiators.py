@@ -18,7 +18,7 @@ from woodglue.apps.server import create_app
 from woodglue.apps.system_api import build_system_namespace
 from woodglue.auth_store import AuthStore
 from woodglue.config import NamespaceEntry, WoodglueConfig
-from woodglue.engine import EngineRegistry, activate_triggers, create_engine
+from woodglue.engine import EngineRegistry, create_engine
 from woodglue.mount import MountContext
 
 ROLES = {"ops": ["call jobs", "read jobs", "trigger jobs"]}
@@ -69,7 +69,7 @@ class RunInitiatorTestCase(tornado.testing.AsyncHTTPTestCase):
         storage.log_file = None
         ns.mount(storage)
         engine = create_engine(mount, ns)
-        activate_triggers(engine)
+        engine.trigger_manager.activate_configured()
         registry = EngineRegistry()
         registry.register(engine)
         namespaces: dict[str, Any] = {"jobs": (ns, NamespaceEntry(gref="unused"))}
