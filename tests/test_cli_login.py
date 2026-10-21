@@ -261,5 +261,35 @@ class TestMacDebug(CliLoginTestCase):
             step("POST cli (redirect to closed port)", lambda: opener.open(req, timeout=5).status)
 
         await asyncio.get_running_loop().run_in_executor(None, run)
+
+        def browser(url: str) -> None:
+            query = parse_qs(urlsplit(url).query)
+            form = urlencode({k: v[0] for k, v in query.items()}).encode()
+            req = urllib.request.Request(
+                self.get_url("/auth/cli"),
+                data=form,
+                headers={"Cookie": f"wgl_session={self.session}"},
+            )
+            t = time.monotonic()
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    trace.append(
+                        f"browser: {resp.status} {resp.url[:60]} {time.monotonic() - t:.2f}s"
+                    )
+            except Exception as exc:
+                trace.append(f"browser: {type(exc).__name__} {exc} {time.monotonic() - t:.2f}s")
+                raise
+
+        t0 = time.monotonic()
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: cli_login.login(
+                    self.get_url("").rstrip("/"), "dbg", open_browser=browser, timeout=15
+                ),
+            )
+            trace.append(f"login: ok {time.monotonic() - t0:.2f}s")
+        except Exception as exc:
+            trace.append(f"login: {type(exc).__name__} {exc} {time.monotonic() - t0:.2f}s")
         if sys.platform == "darwin":
             raise AssertionError("\n".join(trace))
