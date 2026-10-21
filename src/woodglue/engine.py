@@ -1,10 +1,10 @@
 """
 Per-namespace engine instances and registry.
 
-`activate_triggers` runs on every `wgl start`. The node configs decide which triggers
-exist; the stored activation status decides whether each one is on. A trigger disabled
-through the `deactivate_trigger` system API stays disabled across restarts until it is
-explicitly reactivated with `activate_trigger`.
+`wgl start` calls `TriggerManager.activate_configured()` for each engine. The node
+configs decide which triggers exist; the stored activation status decides whether each
+one is on. A trigger disabled through the `deactivate_trigger` system API stays disabled
+across restarts until it is explicitly reactivated with `activate_trigger`.
 """
 
 from __future__ import annotations
@@ -93,33 +93,3 @@ def create_engine(mount: MountContext, namespace: Namespace) -> NamespaceEngine:
         trigger_manager=trigger_manager,
         mount=mount,
     )
-
-
-@dataclass(frozen=True)
-class TriggerActivationResult:
-    """Outcome of `activate_triggers`: names activated and names left disabled."""
-
-    activated: list[str]
-    left_disabled: list[str]
-
-
-def activate_triggers(engine: NamespaceEngine) -> TriggerActivationResult:
-    """
-    Activate the triggers defined in namespace node configs, as done on every start.
-
-    New and already active triggers are activated (an active one keeps its
-    `last_run_at`). A trigger stored as `disabled` is skipped and its row left untouched.
-    """
-    activated: list[str] = []
-    left_disabled: list[str] = []
-    for node in engine.namespace._nodes.values():  # pyright: ignore[reportPrivateUsage]
-        if node.config and node.config.triggers:
-            for tc in node.config.triggers:
-                assert tc.name is not None, "trigger name must be set after registration"
-                activation = engine.trigger_store.get_activation(tc.name)
-                if activation is not None and activation["status"] == "disabled":
-                    left_disabled.append(tc.name)
-                    continue
-                engine.trigger_manager.activate(tc.name)
-                activated.append(tc.name)
-    return TriggerActivationResult(activated=activated, left_disabled=left_disabled)

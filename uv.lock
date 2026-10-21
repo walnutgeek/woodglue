@@ -1099,16 +1099,16 @@ wheels = [
 
 [[package]]
 name = "lythonic"
-version = "0.0.26"
+version = "0.0.28"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "croniter" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/52/5397fb9e28b0bb9adf81cf3b455f7dcd9052fab6cb6be70b8d0adf6ff31c/lythonic-0.0.26.tar.gz", hash = "sha256:f54475850211e100ab200aa50328e01766302ac0dc6c15299d8fd69f1c909b8b", size = 291461, upload-time = "2026-10-01T02:49:42.005Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/fc/944beb250dc5b4f9db3b1c71b7e26b381fb8f04711829ea5913f85462004/lythonic-0.0.28.tar.gz", hash = "sha256:5cc3afdf88ab7505ea82ebf8216641e975f0aec8c3ce4bb91c07beb9c1021f55", size = 300666, upload-time = "2026-10-21T00:14:16.444Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/79/8f7be6c0d4afb9dfa341adc876a86ebaefa0f0556452b3ec499f3f1dff41/lythonic-0.0.26-py3-none-any.whl", hash = "sha256:852f156360fae069c34b24c050f6f9ff4e6774eeece2a2b19597f26aceefce27", size = 98633, upload-time = "2026-10-01T02:49:40.61Z" },
+    { url = "https://files.pythonhosted.org/packages/96/22/f32a569ae9b4a30b8cc2c0568036a9b87af942c3f66801ac64b052750f69/lythonic-0.0.28-py3-none-any.whl", hash = "sha256:8f9d8aca7db98a820711aac4d29c2068f50cd39d169a7d49177b8bc9d2ae514a", size = 101406, upload-time = "2026-10-21T00:14:15.226Z" },
 ]
 
 [[package]]
@@ -1749,6 +1749,20 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.15.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/ea/5194e52748b0da83d71e082d75496eaec6e58f419f5e184786ded517e6a9/pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8", size = 121252, upload-time = "2026-09-28T18:40:42.598Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/ca/44de4e75f8aadc457f0634be3b542815078ded46dca30efb960edeecad6e/pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193", size = 33860, upload-time = "2026-09-28T18:40:41.429Z" },
+]
+
+[package.optional-dependencies]
+crypto = [
+    { name = "cryptography" },
+]
+
+[[package]]
 name = "pymdown-extensions"
 version = "10.21.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2318,6 +2332,15 @@ wheels = [
 ]
 
 [[package]]
+name = "strif"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/7e/5822171da928d7b0a398f96ae5ec393ddab4115198516a073718fc59d7e8/strif-3.1.0.tar.gz", hash = "sha256:6ea9f62d5d19013db170a7efab20b1b08153604acc94bc9d64bc18543d96c3ad", size = 40127, upload-time = "2026-05-23T21:03:03.873Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/83/6dd4e9ef8717dab7539863ad7728ce64611a41b95b238aa7846460016702/strif-3.1.0-py3-none-any.whl", hash = "sha256:9337b67a7019cee445ac15f96dd2c7f8fda9a5166a1cfb95e695e33200db00d3", size = 20171, upload-time = "2026-05-23T21:03:02.978Z" },
+]
+
+[[package]]
 name = "termcolor"
 version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2547,6 +2570,8 @@ dependencies = [
     { name = "lythonic" },
     { name = "polars" },
     { name = "pydantic-yaml" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "strif" },
     { name = "tornado" },
 ]
 
@@ -2576,9 +2601,11 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography" },
-    { name = "lythonic" },
+    { name = "lythonic", specifier = ">=0.0.28" },
     { name = "polars" },
     { name = "pydantic-yaml" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },
+    { name = "strif", specifier = ">=3.1.0" },
     { name = "tornado" },
 ]
 

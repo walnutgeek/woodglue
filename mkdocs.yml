@@ -62,15 +62,31 @@ exclude_docs: |
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - How-to:
+      - Identity Providers: how-to/identity-providers.md
+      - Host a project UI: how-to/static-ui.md
+      - Host a Streamlit app: how-to/streamlit-ui.md
+      - Run behind Caddy: how-to/caddy.md
   - API Reference:
       - woodglue.config: reference/config.md
+      - woodglue.access: reference/access.md
+      - woodglue.auth_store: reference/auth-store.md
+      - woodglue.caddy: reference/caddy.md
       - woodglue.client: reference/client.md
+      - woodglue.ui_support: reference/ui-support.md
       - woodglue.cli: reference/cli.md
+      - woodglue.cli_login: reference/cli-login.md
       - woodglue.log_setup: reference/log-setup.md
       - apps:
           - woodglue.apps.server: reference/apps-server.md
           - woodglue.apps.rpc: reference/apps-rpc.md
           - woodglue.apps.llm_docs: reference/apps-llm-docs.md
+          - woodglue.apps.authn: reference/apps-authn.md
+          - woodglue.apps.auth_pages: reference/apps-auth-pages.md
+          - woodglue.apps.identity_providers: reference/apps-identity-providers.md
+          - woodglue.apps.uis: reference/apps-uis.md
+          - woodglue.apps.ui_process: reference/apps-ui-process.md
+          - woodglue.apps.ui_proxy: reference/apps-ui-proxy.md
       - woodglue.hello: reference/hello.md
   - UI Decks: decks/index.md
   - Release Notes:

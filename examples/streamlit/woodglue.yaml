@@ -1,0 +1,14 @@
+# A woodglue instance hosting the Streamlit app in this directory at /ui/hello/.
+namespaces:
+  hello:
+    gref: "woodglue.hello:ns"
+auth:
+  roles:
+    greeter: ["call hello", "view ui:hello"]
+uis:
+  hello:
+    kind: streamlit
+    app: app.py
+    label: Hello
+ui:
+  default: hello

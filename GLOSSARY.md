@@ -27,8 +27,8 @@ A named set of Grants given to Users, e.g. `admin`, `operator`, `viewer`.
 _Avoid_: group, permission set
 
 **Grant**:
-Permission to perform one action on the namespaces matching a pattern, e.g. `call`
-on `reports.*`.
+Permission to perform one action on the targets matching a pattern, e.g. `call` on
+`reports`, or `view` on `ui:*`.
 _Avoid_: permission, scope, ACL entry
 
 **Service User**:
@@ -67,6 +67,6 @@ woodglue proxies to.
 _Avoid_: dynamic UI, app server, Streamlit UI (as the general term)
 
 **Delegated Token**:
-A short-lived secret that woodglue hands to a process-backed UI so the UI can call the
-API as the viewing User. It ends when that User's Session ends.
+A secret that woodglue hands to a process-backed UI so the UI can call the API as the
+viewing User, limited to the UI's own Grants. It ends when that User's Session ends.
 _Avoid_: forwarded token, impersonation token

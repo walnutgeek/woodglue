@@ -27,7 +27,8 @@ Woodglue is the HTTP layer; lythonic provides the core runtime
 - **JSON-RPC 2.0 with multi-namespace routing** — register Python functions, call them over HTTP with dot-prefixed namespace routing
 - **Auto-generated docs** — `llms.txt` index, per-method markdown, OpenAPI 3.0.3 spec
 - **Built-in UI** — browser-based API browsing, trigger management, DAG visualization
-- **Bearer token authentication** — configurable per-namespace auth
+- **Project UIs** — host your own single-page app or Streamlit app next to the Console, signed in as the same User
+- **Users, Roles, and Grants** — per-namespace authorization with Personal Access Tokens
 - **Typed async client** — auto-resolved return types via `x-global-ref`
 - **YAML-driven namespace configuration** — declarative setup with per-method tags and explicit gref/file/entries fields
 - **DAG orchestration with scheduled triggers** — workflow execution and scheduling via lythonic
@@ -74,7 +75,8 @@ Run the server:
 wgl start
 ```
 
-Get the bearer token with `wgl token` (rotate it with `wgl token --new`).
+Get the admin token with `wgl token` (rotate it with `wgl token --new`).
+Manage Users, Roles, and tokens with `wgl user`.
 
 ## Endpoints
 
@@ -82,4 +84,5 @@ Get the bearer token with `wgl token` (rotate it with `wgl token --new`).
 - `GET /docs/llms.txt` — method index
 - `GET /docs/methods/{name}.md` — per-method documentation
 - `GET /docs/openapi.json` — OpenAPI spec
-- `GET /ui/` — documentation UI
+- `GET /console/` — the Console, the built-in browser UI
+- `GET /auth/login` — browser sign-in

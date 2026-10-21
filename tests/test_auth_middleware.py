@@ -9,10 +9,11 @@ import tornado.testing
 from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
+from woodglue.access import resolve_roles
 from woodglue.apps.server import create_app
+from woodglue.auth_store import AuthStore
 from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig, WoodglueStorageConfig
 from woodglue.hello import hello, pydantic_hello
-from woodglue.token_store import ensure_token
 
 
 def _make_namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
@@ -38,8 +39,9 @@ class TestAuthEnabled(tornado.testing.AsyncHTTPTestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self._db_path = Path(self._tmp.name) / "auth.db"
-        self._token = ensure_token(self._db_path)
-        assert self._token is not None
+        store = AuthStore(self._db_path, resolve_roles({}))
+        store.ensure_admin_token()
+        self._token = store.admin_tokens()[0]
         super().setUp()
 
     @override
@@ -93,12 +95,8 @@ class TestAuthEnabled(tornado.testing.AsyncHTTPTestCase):
         )
         assert resp.code == 200
 
-    def test_docs_with_query_token(self):
-        resp = self.fetch(f"/docs/llms.txt?token={self._token}")
-        assert resp.code == 200
-
-    def test_docs_with_bad_query_token(self):
-        resp = self.fetch("/docs/llms.txt?token=bad-token")
+    def test_docs_with_bad_token(self):
+        resp = self.fetch("/docs/llms.txt", headers={"Authorization": "Bearer bad-token"})
         assert resp.code == 401
 
 

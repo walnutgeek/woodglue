@@ -38,11 +38,13 @@ classifiers = [
 # ---- Main dependencies ----
 
 dependencies = [
-    "lythonic",
+    "lythonic>=0.0.28",
     "pydantic-yaml",
     "polars",
     "tornado",
     "cryptography",
+    "pyjwt[crypto]>=2.15.1",
+    "strif>=3.1.0",
 ]
 
 
