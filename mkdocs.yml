@@ -63,6 +63,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - How-to:
+      - Access control: how-to/access-control.md
       - Identity Providers: how-to/identity-providers.md
       - Host a project UI: how-to/static-ui.md
       - Host a Streamlit app: how-to/streamlit-ui.md

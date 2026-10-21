@@ -10,6 +10,10 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      # Without a pin uv picks the newest Python on the runner, for which some
+      # dependencies (pydantic-core) have no wheels yet.
+      UV_PYTHON: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4

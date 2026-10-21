@@ -32,26 +32,22 @@ def greet(input: GreetIn) -> GreetOut:
     return GreetOut(message=f"Hello, {input.name}!")
 
 ns = Namespace()
-ns.register(greet, tags=["api"])
+ns.register(greet, nsref="greet", tags=["api"])
 ```
 
 ## Configure the Server
 
-Create `data/woodglue.yaml`:
+Create `data/woodglue.yaml`, pointing at the namespace object:
 
 ```yaml
 namespaces:
-  myapp: "myapp_ns.yaml"
+  myapp:
+    gref: "myapp.api:ns"
 ```
 
-Create `data/myapp_ns.yaml`:
-
-```yaml
-namespace:
-  - nsref: greet
-    gref: "myapp.api:greet"
-    tags: ["api"]
-```
+A namespace can also be declared in its own YAML file
+(`myapp: {file: myapp_ns.yaml}`) or inline (`myapp: {entries: [...]}`); see
+`woodglue.config.NamespaceEntry`.
 
 ## Start the Server
 
@@ -71,8 +67,18 @@ wgl token          # print the admin token
 wgl token --new    # replace it; the running server picks it up immediately
 ```
 
-To give a script narrower access, define a Role and issue a Personal Access
-Token to a Service User:
+## Sign In to the Console
+
+Open `http://127.0.0.1:5321/`. It sends you to the login page; paste the admin
+token. The Console shows the namespaces, runs, and triggers you may see, and a
+Tokens page for your own Personal Access Tokens. To let people sign in with
+their own accounts, configure an Identity Provider: see
+[Identity Providers](how-to/identity-providers.md).
+
+## Give Others Access
+
+Define Roles and give them to Users. For a script, create a Service User and
+issue it a Personal Access Token:
 
 ```yaml
 auth:
@@ -86,9 +92,8 @@ wgl user assign ci reporter
 wgl user issue ci nightly --days=90       # prints the secret once
 ```
 
-A Grant is `"<action> <pattern>"`, where the action is `call`, `read`,
-`trigger`, `view`, or `admin`, and the pattern is a glob over namespace names.
-See `woodglue.access` for details.
+See [Control who can do what](how-to/access-control.md) for Grants, Roles,
+and tokens.
 
 For a remote server, sign in through the browser instead; the token is
 stored for that server and used by `WoodglueClient`:
@@ -119,3 +124,10 @@ await client.load_spec(strict=True)
 result = await client.call("myapp.greet", input={"name": "World"})
 # result is GreetOut(message="Hello, World!")
 ```
+
+## Next Steps
+
+- [Control who can do what](how-to/access-control.md)
+- [Sign in with Google, GitHub, Entra ID, Okta, or Auth0](how-to/identity-providers.md)
+- [Host a project UI](how-to/static-ui.md) or [a Streamlit app](how-to/streamlit-ui.md)
+- [Run behind Caddy](how-to/caddy.md)
