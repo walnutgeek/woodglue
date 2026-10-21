@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import socketserver
 import threading
 import urllib.error
 import urllib.request
@@ -82,6 +83,22 @@ def _save_credentials(credentials: dict[str, StoredToken]) -> None:
             f.write(data)
 
 
+class _LoopbackServer(HTTPServer):
+    """
+    `HTTPServer` without its reverse-DNS lookup of the bind address, which
+    takes seconds on some macOS machines and only names the server in logs.
+    """
+
+    server_name: str
+    server_port: int
+
+    @override
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+
+
 class _Callback:
     """What the browser brought back to the loopback listener."""
 
@@ -109,7 +126,7 @@ def _listener(result: _Callback) -> HTTPServer:
         def log_message(self, format: str, *args: object) -> None:
             pass
 
-    return HTTPServer(("127.0.0.1", 0), Handler)
+    return _LoopbackServer(("127.0.0.1", 0), Handler)
 
 
 def _open_in_browser(url: str) -> None:

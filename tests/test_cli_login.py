@@ -204,7 +204,6 @@ class TestMacDebug(CliLoginTestCase):
 
     @tornado.testing.gen_test(timeout=90)
     async def test_debug_loopback_steps(self) -> None:
-        import socket
         import time
 
         from woodglue import cli_login
@@ -225,7 +224,6 @@ class TestMacDebug(CliLoginTestCase):
 
         def run() -> None:
             step("getproxies", urllib.request.getproxies)
-            step("getfqdn", lambda: socket.getfqdn("127.0.0.1"))
             step(
                 "GET tornado",
                 lambda: urllib.request.urlopen(self.get_url("/auth/login"), timeout=5).status,
