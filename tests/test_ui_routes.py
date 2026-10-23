@@ -15,9 +15,14 @@ class TestUiRoutes(tornado.testing.AsyncHTTPTestCase):
         )
 
     def test_bare_paths_redirect_to_console(self):
-        for path in ("/", "/console"):
+        resp = self.fetch("/console", follow_redirects=False)
+        assert resp.code == 301
+        assert resp.headers["Location"] == "/console/"
+
+    def test_root_and_legacy_ui_redirect_temporarily_to_default(self):
+        for path in ("/", "/ui", "/ui/"):
             resp = self.fetch(path, follow_redirects=False)
-            assert resp.code == 301, path
+            assert resp.code == 302, path
             assert resp.headers["Location"] == "/console/", path
 
     def test_console_index_served(self):
