@@ -6,9 +6,11 @@ Caddyfile for running woodglue behind Caddy (see `docs/adr/0004`).
 - serves `<site>` with Caddy's automatic HTTPS;
 - removes client-sent `X-Woodglue-*` headers, which only woodglue may set;
 - serves each Static UI's files from disk, after asking woodglue's
-  `/auth/verify` through `forward_auth` whether the viewer may open it;
-- sends everything else to woodglue: the API, docs, login, the Console, and
-  Process-backed UIs, whose processes woodglue runs on ports it picks at
+  `/auth/verify` through `forward_auth` whether the viewer may open it, unless
+  it comes from an installed package, whose location changes with the
+  environment and would leave a stale path here;
+- sends everything else to woodglue: the API, docs, login, the Console, package
+  Static UIs, and Process-backed UIs, whose processes woodglue runs on ports it picks at
   start and whose Session handling (cookie stripping, Delegated Tokens,
   closing websockets on logout) stays in one place.
 
@@ -18,7 +20,7 @@ or Grants; woodglue stays the only place that decides who may do what.
 
 from __future__ import annotations
 
-from woodglue.config import WoodglueConfig
+from woodglue.config import WoodglueConfig, is_package_ref
 
 
 def woodglue_address(config: WoodglueConfig) -> str:
@@ -33,7 +35,10 @@ def woodglue_address(config: WoodglueConfig) -> str:
 
 
 def caddyfile(config: WoodglueConfig, site: str) -> str:
-    """The Caddyfile for `site`. UI paths in `config` must already be absolute."""
+    """
+    The Caddyfile for `site`. UI paths in `config` must already be absolute, or
+    still be `package:` references.
+    """
     upstream = woodglue_address(config)
     lines = [
         f"{site} {{",
@@ -44,7 +49,7 @@ def caddyfile(config: WoodglueConfig, site: str) -> str:
         "\trequest_header -X-Woodglue-Token",
     ]
     for name, entry in sorted(config.uis.items()):
-        if not entry.is_static:
+        if not entry.is_static or is_package_ref(entry.path):
             continue
         lines += [
             "",
@@ -82,7 +87,7 @@ def caddyfile(config: WoodglueConfig, site: str) -> str:
         ]
     lines += [
         "",
-        "\t# The API, docs, login, the Console, and Process-backed UIs.",
+        "\t# The API, docs, login, the Console, package Static UIs, and Process-backed UIs.",
         "\thandle {",
         f"\t\treverse_proxy {upstream}",
         "\t}",

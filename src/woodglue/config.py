@@ -17,7 +17,8 @@ import os
 import re
 from collections.abc import Mapping
 from enum import StrEnum
-from pathlib import Path
+from importlib.util import find_spec
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from lythonic.compose.engine import StorageConfig
@@ -28,6 +29,52 @@ from typing_extensions import override
 from woodglue.access import Grant, resolve_roles
 
 CONFIG_FILENAME = "woodglue.yaml"
+
+PACKAGE_SCHEME = "package:"
+
+
+def is_package_ref(value: str | None) -> bool:
+    """
+    Whether a UI's `app` or `path` names a location in an installed package.
+
+    >>> is_package_ref("package:cointoss/explorer_app.py"), is_package_ref("dash/app.py")
+    (True, False)
+    """
+    return value is not None and value.startswith(PACKAGE_SCHEME)
+
+
+def package_path(ref: str, *, directory: bool) -> Path:
+    """
+    The absolute path of a `package:<import name>/<path>` reference, which must be
+    a directory or else a file. The package is located but not imported, and
+    editable installs work too. Raises `ValueError` if the reference is malformed
+    or does not resolve.
+
+    >>> package_path("package:woodglue/apps/uis.py", directory=False).name
+    'uis.py'
+    >>> package_path("package:woodglue/../secrets.py", directory=False)
+    Traceback (most recent call last):
+    ValueError: package:woodglue/../secrets.py: the path must stay inside the package
+    """
+    name, _, inner = ref.removeprefix(PACKAGE_SCHEME).partition("/")
+    if not name.isidentifier():
+        raise ValueError(f"{ref}: expected package:<import name>/<path>")
+    if not inner:
+        raise ValueError(f"{ref}: needs a path inside the package")
+    # PureWindowsPath recognizes backslashes and drives on every platform.
+    inner_path = PureWindowsPath(inner)
+    if inner_path.anchor or ".." in inner_path.parts:
+        raise ValueError(f"{ref}: the path must stay inside the package")
+    spec = find_spec(name)
+    if spec is None:
+        raise ValueError(f"{ref}: package {name!r} is not installed")
+    if spec.submodule_search_locations is None:
+        raise ValueError(f"{ref}: {name!r} is not a package")
+    for location in spec.submodule_search_locations:
+        candidate = Path(location, *inner_path.parts)
+        if candidate.is_dir() if directory else candidate.is_file():
+            return candidate
+    raise ValueError(f"{ref}: no such {'directory' if directory else 'file'} in the package")
 
 
 class WoodglueStorageConfig(StorageConfig):
@@ -107,6 +154,15 @@ class UiEntry(BaseModel):
     `grants` the token carries all of the viewer's Grants. `ready_path` is what
     woodglue polls until the process answers; `dev` turns on the framework's
     reload.
+
+    `app` and `path` may name a location in an installed package rather than on
+    disk, as `package:<import name>/<path>` (`package:cointoss/explorer_app.py`),
+    which keeps the config independent of the environment's location and Python
+    version. A subpackage is just more path, and the path cannot leave the
+    package. References are resolved by `wgl start` and checked by
+    `wgl caddy config` (see `resolve_package_refs`), so a bad one does not
+    affect commands that do not use UIs. The working directory stays the data
+    dir or `cwd`.
 
     Opening any UI needs `view` on `ui:<name>` unless `public`.
     """
@@ -415,3 +471,18 @@ def load_config(data_dir: Path) -> WoodglueConfig:
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     return parse_yaml_file_as(WoodglueConfig, config_path)
+
+
+def resolve_package_refs(config: WoodglueConfig) -> None:
+    """
+    Replace the `package:` references in `config.uis` with absolute paths. Raises
+    `ValueError` naming the UI if one does not resolve.
+    """
+    for name, entry in config.uis.items():
+        try:
+            if entry.path is not None and is_package_ref(entry.path):
+                entry.path = str(package_path(entry.path, directory=True))
+            if entry.app is not None and is_package_ref(entry.app):
+                entry.app = str(package_path(entry.app, directory=False))
+        except ValueError as exc:
+            raise ValueError(f"UI '{name}': {exc}") from exc

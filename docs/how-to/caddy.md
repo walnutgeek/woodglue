@@ -16,12 +16,13 @@ The generated site:
 
 - gets a certificate for `wg.example.com` automatically;
 - removes client-sent `X-Woodglue-User` and `X-Woodglue-Token` headers;
-- serves each Static UI's files from disk. Before each request,
+- serves each Static UI's files from disk, except those configured as
+  `package:` references, which reach woodglue like the rest. Before each request,
   `forward_auth` asks woodglue's `/auth/verify` whether the viewer may open the
   UI, so a visitor without a Session is sent to the login page and back, and
   one without `view` on `ui:<name>` gets 403;
 - sends everything else to woodglue: `/rpc`, `/docs`, `/auth`, the Console,
-  and Process-backed UIs such as Streamlit. woodglue runs those processes on
+  package Static UIs, and Process-backed UIs such as Streamlit. woodglue runs those processes on
   ports it picks at start, and keeps their Session handling (cookie stripping,
   Delegated Tokens, closing websockets on sign-out) in one place.
 

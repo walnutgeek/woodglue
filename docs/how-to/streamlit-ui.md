@@ -23,6 +23,21 @@ auth:
     analyst: ["call reports", "view ui:dash"]
 ```
 
+If the app ships in an installed package, name it by package instead of by its
+path in `site-packages`, so the config survives upgrades. The first segment is
+the import name, and the package is installed in the same environment:
+
+```yaml
+uis:
+  explore:
+    kind: streamlit
+    app: package:cointoss/explorer_app.py
+```
+
+`wgl start` stops with an error naming the UI if the reference does not resolve.
+The app still runs in the data dir (or `cwd`), so its `.streamlit/config.toml`
+belongs there.
+
 `wgl start` runs `streamlit run` on a free loopback port with
 `--server.baseUrlPath=ui/dash`, waits for `/_stcore/health`, and restarts the
 app if it exits. Set `dev: true` to reload the app when its files change.
