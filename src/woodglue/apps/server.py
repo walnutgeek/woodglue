@@ -134,7 +134,15 @@ def create_app(
         )
 
     if config.ui.enabled or config.uis:
-        handlers.append((r"/", tornado.web.RedirectHandler, {"url": ui_path(config.ui.default)}))
+        # Temporary (302): the target follows `ui.default`. `/ui/` is covered because
+        # releases up to 0.0.8 sent `/` there with a 301, which browsers keep cached.
+        handlers.append(
+            (
+                r"/(ui/?)?",
+                tornado.web.RedirectHandler,
+                {"url": ui_path(config.ui.default), "permanent": False},
+            )
+        )
 
     trusted_proxies = make_trusted_proxies(config.auth.providers) if auth_store else []
     for proxy in trusted_proxies:
