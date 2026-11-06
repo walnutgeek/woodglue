@@ -77,6 +77,10 @@ auth:
   file extension still 404.
 - `public: true` serves the files without sign-in, e.g. for a status page. The
   API calls it makes still need a Caller.
+- A UI built into an installed package can be named by package, so the config
+  survives upgrades: `path: package:cointoss/explorer_dist`. The first segment
+  is the import name. `wgl start` stops with an error naming the UI if the
+  reference does not resolve.
 
 The Console links to every UI the signed-in User may open
 (`system.list_uis`).

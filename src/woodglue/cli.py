@@ -45,7 +45,14 @@ from lythonic.compose.cli import ActionTree, Main, RunContext
 from lythonic.compose.namespace import Namespace
 from pydantic import BaseModel, Field
 
-from woodglue.config import CONFIG_FILENAME, NamespaceEntry, WoodglueConfig, load_config
+from woodglue.config import (
+    CONFIG_FILENAME,
+    NamespaceEntry,
+    WoodglueConfig,
+    is_package_ref,
+    load_config,
+    resolve_package_refs,
+)
 from woodglue.mount import MountContext
 
 if TYPE_CHECKING:
@@ -106,11 +113,22 @@ def _resolve_storage(config: WoodglueConfig, data_dir: Path) -> None:
     # Resolve auth_db (woodglue-specific)
     storage.auth_db = resolve_file(data_dir, storage.auth_db, "auth.db")
     for entry in config.uis.values():
-        if entry.path is not None:
+        if entry.path is not None and not is_package_ref(entry.path):
             entry.path = str(data_dir / entry.path)
-        if entry.app is not None:
+        if entry.app is not None and not is_package_ref(entry.app):
             entry.app = str(data_dir / entry.app)
         entry.cwd = str(data_dir / entry.cwd) if entry.cwd else str(data_dir)
+
+
+def _resolve_package_refs(config: WoodglueConfig) -> None:
+    """
+    Separate from `_resolve_storage` so that a bad UI reference stops only the
+    commands that use UIs, not `wgl run` or the `wgl user` commands.
+    """
+    try:
+        resolve_package_refs(config)
+    except ValueError as exc:
+        sys.exit(str(exc))
 
 
 def load_namespaces(
@@ -160,6 +178,7 @@ def start(ctx: RunContext) -> None:  # pyright: ignore[reportUnusedParameter]
 
     config = load_config(data_dir)
     _resolve_storage(config, data_dir)
+    _resolve_package_refs(config)
 
     from woodglue.log_setup import setup_logging
 
@@ -536,6 +555,8 @@ def config(ctx: RunContext, site: str) -> None:
     data_dir = root.data.resolve()
     cfg = load_config(data_dir)
     _resolve_storage(cfg, data_dir)
+    # Checks references on a copy: `caddyfile` recognizes package UIs by their reference.
+    _resolve_package_refs(cfg.model_copy(deep=True))
     print(caddyfile(cfg, site), end="")
 
 
