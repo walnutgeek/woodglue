@@ -117,6 +117,12 @@ class TestCliEndpoints(CliLoginTestCase):
         assert resp.code == 200
         assert b"wgl on laptop" in resp.body and b'method="post"' in resp.body
 
+    def test_code_approved_before_the_user_was_deleted_is_refused(self) -> None:
+        resp = self.authorize("POST")
+        code = parse_qs(urlsplit(resp.headers["Location"]).query)["code"][0]
+        self.store.delete_user(self.user_id)
+        assert self.exchange(code, "v" * 43).code == 400
+
     def test_only_loopback_redirects_are_allowed(self) -> None:
         for bad in ("https://evil.example/cb", "http://10.0.0.5:8000/cb", "http://127.0.0.1/cb"):
             assert self.authorize(redirect_uri=bad).code == 400, bad

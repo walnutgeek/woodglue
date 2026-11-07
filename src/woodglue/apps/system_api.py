@@ -21,8 +21,8 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
   `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
   a Session can create tokens (see `Caller.may_issue_credentials`).
 - User management (`list_users`, `create_service_user`, `disable_user`,
-  `enable_user`, `assign_role`, `unassign_role`) and other Users' tokens need
-  `admin`.
+  `enable_user`, `delete_user`, `assign_role`, `unassign_role`) and other Users'
+  tokens need `admin`.
 """
 
 from __future__ import annotations
@@ -456,6 +456,17 @@ def build_system_namespace(
         check(Action.admin)
         _store().set_disabled(_find_user(user).id, False)
 
+    def delete_user(user: str) -> None:
+        """
+        Erase a User from `auth.db`, ending its credentials. Run history keeps its
+        id, which `describe_initiators` then returns as is.
+        """
+        check(Action.admin)
+        try:
+            _store().delete_user(_find_user(user).id)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
+
     def assign_role(user: str, role: str) -> None:
         """Give a User a Role."""
         check(Action.admin)
@@ -480,6 +491,7 @@ def build_system_namespace(
         (create_service_user, "create_service_user"),
         (disable_user, "disable_user"),
         (enable_user, "enable_user"),
+        (delete_user, "delete_user"),
         (assign_role, "assign_role"),
         (unassign_role, "unassign_role"),
         (list_namespaces, "list_namespaces"),

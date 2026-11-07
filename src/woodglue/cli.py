@@ -13,6 +13,7 @@ Commands:
         add <name>                 Create a Service User
         assign|unassign <user> <role>
         disable|enable <user>      Disabling also revokes the User's credentials
+        delete <user>              Erase the User and its credentials; run history keeps its id
         issue <user> <name> [--days=N] [--grants="call reports, read *"]
                                    Create a Personal Access Token; prints the secret
         tokens <user>              List a User's tokens (never the secrets)
@@ -477,6 +478,13 @@ def user_enable(ctx: RunContext, user: str) -> None:
     """Re-enable a disabled User"""
     store = _auth_store(ctx)
     store.set_disabled(store.find_user(user).id, False)
+
+
+@_user_action("delete")
+def user_delete(ctx: RunContext, user: str) -> None:
+    """Erase a User, its Role assignments, Linked Identities, and credentials"""
+    store = _auth_store(ctx)
+    store.delete_user(store.find_user(user).id)
 
 
 @_user_action("issue")

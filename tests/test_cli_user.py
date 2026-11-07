@@ -70,6 +70,30 @@ def test_revoke_and_disable(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
     assert store.resolve(second) is None
 
 
+def test_delete_removes_the_user_and_revokes_its_tokens_without_prompting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path)
+    _wgl(tmp_path, capsys, "user", "add", "ci")
+    [secret] = _wgl(tmp_path, capsys, "user", "issue", "ci", "a")
+    _wgl(tmp_path, capsys, "user", "delete", "ci")
+    store = _store(tmp_path)
+    assert store.resolve(secret) is None
+    assert "ci" not in {u.name for u in store.list_users()}
+
+
+def test_delete_refuses_admin_and_unknown_users_with_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path)
+    _wgl(tmp_path, capsys, "user", "list")
+    for user in ("admin", "nobody"):
+        with pytest.raises(SystemExit) as exc_info:
+            main_at.run_args(["wgl", f"--data={tmp_path}", "user", "delete", user])
+        assert user in str(exc_info.value.code)
+    assert "admin" in {u.name for u in _store(tmp_path).list_users()}
+
+
 def test_unknown_user_or_role_exits_with_message(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

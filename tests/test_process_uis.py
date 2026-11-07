@@ -267,6 +267,14 @@ class TestProxyStreaming(ProcessUiTestCase):
 
 
 class TestProxyWebsocket(ProcessUiTestCase):
+    @tornado.testing.gen_test(timeout=20)
+    async def test_sweep_closes_the_websocket_of_a_deleted_user(self) -> None:
+        conn = await self._connect(self.direct_session("echo-viewer"))
+        await conn.read_message()
+        self.store.delete_user(self.store.find_user("echo-viewer").id)
+        self._app.settings["ui_sockets"]._sweep()
+        assert await conn.read_message() is None
+
     def direct_session(self, who: str) -> str:
         return self.store.create_session(self.store.find_user(who).id)
 

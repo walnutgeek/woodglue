@@ -3,8 +3,13 @@ Users, Role assignments, and credentials in `auth.db`.
 
 `AuthStore` is the only reader and writer of `auth.db`. Credentials are opaque
 random secrets looked up on every request (see `docs/adr/0002`), so revoking a
-token, disabling a User, or changing a Role assignment takes effect immediately,
-including on a running server.
+token, disabling or deleting a User, or changing a Role assignment takes effect
+immediately, including on a running server.
+
+Disabling a User keeps its record, so the person stays refused. Deleting erases
+it, with its Role assignments, Linked Identities, and credentials; if the person
+signs in again they become a new User. Run history outside `auth.db` keeps the
+deleted User's id.
 
 Role definitions are not stored here: they come from `woodglue.yaml` (see
 `woodglue.access`). A Role assignment naming a Role that is no longer defined
@@ -306,6 +311,17 @@ class AuthStore:
             conn.execute("UPDATE users SET disabled = ? WHERE id = ?", (int(disabled), user_id))
             if disabled:
                 conn.execute("DELETE FROM credentials WHERE user_id = ?", (user_id,))
+
+    def delete_user(self, user_id: str) -> None:
+        """
+        Erase a User. `ON DELETE CASCADE` removes its Role assignments, Linked
+        Identities, and credentials, including Delegated Tokens.
+        """
+        if user_id == ADMIN_USER_ID:
+            raise ValueError("The built-in admin User cannot be deleted")
+        with self._connect() as conn:
+            self._require_user(conn, user_id)
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     def linked_user(self, provider: str, subject: str) -> str | None:
         """The id of the User linked to an Identity Provider's subject, if any."""
