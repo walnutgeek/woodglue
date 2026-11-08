@@ -337,7 +337,7 @@ def run(ctx: RunContext, nsref: str) -> None:  # pyright: ignore[reportUnusedPar
 
     root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
     data_dir = root.data.resolve()
-    config = load_config(data_dir)
+    config = load_config(data_dir, expand_secrets=False)
     _resolve_storage(config, data_dir)
     namespaces = load_namespaces(config.namespaces, data_dir)
 
@@ -389,7 +389,7 @@ def _auth_store(ctx: RunContext) -> AuthStore:
 
     root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
     data_dir = root.data.resolve()
-    config = load_config(data_dir)
+    config = load_config(data_dir, expand_secrets=False)
     if not config.auth.enabled:
         sys.exit(f"Auth is disabled in {data_dir / CONFIG_FILENAME}; there are no tokens or Users")
     _resolve_storage(config, data_dir)
@@ -571,7 +571,7 @@ def config(ctx: RunContext, site: str) -> None:
 
     root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
     data_dir = root.data.resolve()
-    cfg = load_config(data_dir)
+    cfg = load_config(data_dir, expand_secrets=False)
     _resolve_storage(cfg, data_dir)
     # Checks references on a copy: `caddyfile` recognizes package UIs by their reference.
     _resolve_package_refs(cfg.model_copy(deep=True))

@@ -39,12 +39,12 @@ classifiers = [
 
 dependencies = [
     "lythonic>=0.0.28",
-    "pydantic-yaml",
     "polars",
     "tornado",
     "cryptography",
     "pyjwt[crypto]>=2.15.1",
     "strif>=3.1.0",
+    "ruamel-yaml>=0.18",
 ]
 
 
@@ -71,6 +71,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-asyncio>=1.2.0",
     "playwright>=1.59.0",
+    "pydantic-yaml>=1.6.0",
 ]
 docs = [
     "markdown-pycon>=1.0.1",
