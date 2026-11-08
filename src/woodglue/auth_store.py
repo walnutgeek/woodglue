@@ -117,6 +117,8 @@ class User(BaseModel):
     role_assignments: list[RoleAssignment] = []
     providers: list[str] = []
     """Identity Providers of the User's Linked Identities."""
+    builtin: bool = False
+    """The built-in `admin` Service User, which cannot be disabled, deleted, or lose `admin`."""
     created_at: datetime
 
 
@@ -313,6 +315,7 @@ class AuthStore:
             roles=sorted({a.role for a in assignments}),
             role_assignments=assignments,
             providers=providers,
+            builtin=row["id"] == ADMIN_USER_ID,
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 

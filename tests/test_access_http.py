@@ -157,6 +157,10 @@ class TestRpcAccess(AccessTestCase):
         assert self.rpc("admin", "system.disable_user", user=viewer_id)["result"] is None
         assert self.rpc("viewer", "system.whoami")["error"]["code"] == -32000
 
+    def test_list_users_marks_only_the_builtin_admin(self) -> None:
+        users = self.rpc("admin", "system.list_users")["result"]
+        assert [u["id"] for u in users if u["builtin"]] == ["admin"]
+
     def test_list_roles_needs_admin_and_shows_each_roles_grants(self) -> None:
         assert self.rpc("operator", "system.list_roles")["error"]["code"] == -32003
         roles = {r["name"]: r["grants"] for r in self.rpc("steward", "system.list_roles")["result"]}
@@ -166,6 +170,10 @@ class TestRpcAccess(AccessTestCase):
             "steward": ["admin *"],
             "viewer": ["read *"],
         }
+
+    def test_list_roles_marks_only_the_builtin_admin(self) -> None:
+        result = self.rpc("steward", "system.list_roles")["result"]
+        assert [r["name"] for r in result if r["builtin"]] == ["admin"]
 
     def test_delete_user_needs_admin_and_ends_access_at_once(self) -> None:
         err = self.rpc("operator", "system.delete_user", user="viewer")["error"]

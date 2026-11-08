@@ -1045,7 +1045,9 @@ function roleOption(r) {
 }
 
 // One chip per Role. A synced Role has no remove control: the next sign-in would add it back.
+// Nor does the built-in Role on the built-in User, which the server refuses to remove.
 function renderUserRoles(user) {
+  const cannotUnassign = (role) => user.builtin && state.roles.some((r) => r.name === role && r.builtin);
   const sources = {};
   for (const a of user.role_assignments) (sources[a.role] ||= []).push(a.source);
   const chips = Object.entries(sources).map(([role, from]) => {
@@ -1055,7 +1057,7 @@ function renderUserRoles(user) {
     const title = synced.length
       ? `Synced from ${synced.join(", ")}; the next sign-in would add it back. Grants: ${roleGrants(role)}`
       : `Assigned by an admin. Grants: ${roleGrants(role)}`;
-    const remove = synced.length
+    const remove = synced.length || cannotUnassign(role)
       ? ""
       : `<button class="chip-remove" data-unassign="${escapeHtml(role)}" title="Unassign ${escapeHtml(role)}">&times;</button>`;
     return `<span class="role-chip ${synced.length ? "synced" : "manual"}" title="${escapeHtml(title)}">${escapeHtml(role)} <span class="role-how">${how}</span>${remove}</span>`;
@@ -1066,14 +1068,17 @@ function renderUserRoles(user) {
 function renderUserActions(user) {
   const btn = (action, label, cls = "") => `<button class="link-btn ${cls}" data-action="${action}">${label}</button>`;
   const actions = [];
-  if (user.status === "pending") {
-    actions.push(btn("approve", "Approve"), btn("deny", "Deny", "danger"));
-  } else if (user.status === "active") {
-    actions.push(btn("disable", "Disable", "danger"));
-  } else {
-    actions.push(btn("enable", "Enable"));
+  // The built-in User is always active and cannot be disabled or deleted.
+  if (!user.builtin) {
+    if (user.status === "pending") {
+      actions.push(btn("approve", "Approve"), btn("deny", "Deny", "danger"));
+    } else if (user.status === "active") {
+      actions.push(btn("disable", "Disable", "danger"));
+    } else {
+      actions.push(btn("enable", "Enable"));
+    }
+    actions.push(btn("delete", "Delete", "danger"));
   }
-  actions.push(btn("delete", "Delete", "danger"));
   // Roles the User holds from any source are left out: a manual copy of a synced Role could not be removed here.
   const assignable = state.roles.filter((r) => !user.roles.includes(r.name));
   if (assignable.length) {

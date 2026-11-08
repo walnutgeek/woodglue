@@ -68,8 +68,10 @@ every User with their status, Roles, and the Identity Providers they are linked
 to, and opens on `pending` Users when someone is waiting. From it an admin can
 approve (choosing extra Roles, each shown with its Grants), deny, disable,
 enable, and delete Users, and assign or unassign Roles. Deleting asks for
-confirmation on the page. A refused action, such as approving someone another
-admin already approved, shows the server's message and refreshes the list.
+confirmation on the page. The built-in `admin` User has no disable, delete, or
+`admin` unassign controls, since the server refuses them. A refused action, such
+as approving someone another admin already approved, shows the server's message
+and refreshes the list.
 
 Roles are marked `manual` (assigned by an admin) or `synced` (set at sign-in
 by an Identity Provider or `auth.admins`). Synced Roles cannot be removed on

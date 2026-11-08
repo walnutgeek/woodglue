@@ -28,6 +28,8 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
   User is `disable_user`. `list_users` shows each Role assignment's source
   (`manual`, or synced at sign-in) and the User's Identity Providers;
   `whoami().admin` tells a client such as the Console whether to offer them.
+  `builtin` on a User or Role marks the built-in `admin`, which cannot be
+  disabled, deleted, or lose the `admin` Role.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ from lythonic.compose.dag_runner import DagRunResult
 from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 
-from woodglue.access import AccessDenied, Action, Caller, check, current_caller
+from woodglue.access import ADMIN_ROLE, AccessDenied, Action, Caller, check, current_caller
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
 from woodglue.apps.ui_process import UiProcesses, UiState
@@ -111,6 +113,8 @@ class RoleInfo(BaseModel):
 
     name: str
     grants: list[str]
+    builtin: bool = False
+    """The built-in `admin` Role, which cannot be redefined."""
 
 
 class UiInfo(BaseModel):
@@ -477,7 +481,10 @@ def build_system_namespace(
         """Every defined Role, including the built-in `admin`, with its Grants."""
         check(Action.admin)
         roles = _store().roles
-        return [RoleInfo(name=n, grants=[str(g) for g in roles[n]]) for n in sorted(roles)]
+        return [
+            RoleInfo(name=n, grants=[str(g) for g in roles[n]], builtin=n == ADMIN_ROLE)
+            for n in sorted(roles)
+        ]
 
     def create_service_user(name: str) -> User:
         """Create a Service User, for daemons and CI."""
