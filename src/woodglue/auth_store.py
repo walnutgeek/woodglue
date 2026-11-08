@@ -406,6 +406,7 @@ class AuthStore:
         name: str,
         role_sources: dict[str, list[str]],
         admit_as: UserStatus = UserStatus.active,
+        activate_pending: bool = False,
     ) -> User:
         """
         Find or create the User for an Identity Provider's assertion, after the
@@ -418,7 +419,8 @@ class AuthStore:
         leaving assignments from other sources (and manual ones) alone.
 
         `admit_as` is the status of a User this creates, `active` or `pending`;
-        an existing User keeps its status.
+        an existing User keeps its status, except that `activate_pending`
+        (set for configured admins) makes a `pending` User `active`.
 
         Raises `UserDisabled` if the User is disabled.
         """
@@ -449,6 +451,10 @@ class AuthStore:
                 if row["status"] == UserStatus.disabled:
                     raise UserDisabled(f"User {user_id} is disabled")
                 conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user_id))
+                if activate_pending and row["status"] == UserStatus.pending:
+                    conn.execute(
+                        "UPDATE users SET status = ? WHERE id = ?", (UserStatus.active, user_id)
+                    )
                 if verified_email and row["email"] != verified_email:
                     taken = conn.execute(
                         "SELECT 1 FROM users WHERE email = ?", (verified_email,)

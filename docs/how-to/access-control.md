@@ -67,7 +67,9 @@ time is created `pending`. They are signed in and their provider Roles are
 recorded, but they hold no Grants, so every namespace, UI, and doc page is
 closed to them, and they cannot create Personal Access Tokens. `system.whoami`
 and signing out still work. People listed in `auth.admins` are always created
-`active`, so the first admin of a fresh deployment is never left waiting.
+`active`, so the first admin of a fresh deployment is never left waiting, and a
+`pending` User added to `auth.admins` later becomes `active` at their next
+sign-in. A disabled admin stays disabled.
 
 Each new pending User is logged at INFO as `New pending User usr_… via <provider>`.
 
@@ -81,9 +83,9 @@ wgl user disable pat@example.com         # deny: the record is kept, so they sta
 Approval takes effect on their next request, with no new sign-in. Approving
 someone who is not `pending` fails, so acting on a stale list does not
 silently do nothing. `enable` turns a disabled User `active`, never back into
-`pending`; a pending User is approved, not enabled. The status applies only
-when a sign-in creates the User: an existing User keeps it when signing in
-through another provider.
+`pending`; a pending User is approved, not enabled. `admit_as` applies only
+when a sign-in creates the User: an existing User keeps their status when
+signing in through another provider.
 
 `disable` keeps the record, so the person stays refused. `delete` is for erasure
 on request: it removes the User's name, email, Role assignments, Linked

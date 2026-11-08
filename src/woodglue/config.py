@@ -316,7 +316,9 @@ class ProviderConfig(BaseModel):
 
     `admit_as: pending` makes a User this provider's sign-in creates wait for an
     admin's approval, holding no Grants until then; people in `auth.admins` are
-    still created `active`. It does not change the status of existing Users.
+    still created `active`. It does not change the status of existing Users,
+    except that a `pending` User later added to `auth.admins` becomes `active`
+    at their next sign-in.
     """
 
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")

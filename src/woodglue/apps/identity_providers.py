@@ -14,11 +14,12 @@ authorization code flow with PKCE:
   audience, expiry, nonce, signature against the provider's JWKS); for GitHub
   it is the user, verified primary email, orgs, and teams from the API.
 - The person is then checked against the provider's `admit` rules, signed in
-  as a local User (`AuthStore.sign_in_person`), and given a Session.
+  as a local User (`sign_in`), and given a Session.
 
 Admission and claim-to-Role mapping are re-evaluated at every sign-in. A User
 the sign-in creates gets the status `admit_status` picks: `pending` under the
-provider's `admit_as: pending`, unless the person is in `auth.admins`.
+provider's `admit_as: pending`, unless the person is in `auth.admins`. A
+`pending` User who is in `auth.admins` by the next sign-in becomes `active`.
 
 A trusted proxy (`JwtProxy`, `HeaderProxy`) has no round trip: it asserts the
 identity on every request, and `woodglue.apps.authn` turns the first valid
@@ -52,7 +53,7 @@ import tornado.httputil
 from typing_extensions import override
 
 from woodglue.access import ADMIN_ROLE
-from woodglue.auth_store import UserStatus
+from woodglue.auth_store import AuthStore, User, UserStatus
 from woodglue.config import AdmitRules, ProviderConfig, ProviderKind
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,27 @@ def role_sources(
         roles.update(provider.group_roles.get(group, []))
     admin = [ADMIN_ROLE] if is_admin(who, admins) else []
     return {f"provider:{provider.id}": sorted(roles), "admins": admin}
+
+
+def sign_in(
+    store: AuthStore, provider: ProviderConfig, who: ExternalIdentity, admins: list[str]
+) -> User:
+    """
+    Sign in `who`, already admitted by `provider`, as a local User: sync its
+    `role_sources`, create a new User with the status `admit_status` picks,
+    and make a `pending` User who is now in `auth.admins` `active`. Raises
+    `UserDisabled` for a disabled User, admin or not.
+    """
+    return store.sign_in_person(
+        who.provider,
+        who.subject,
+        email=who.email,
+        email_verified=who.email_verified,
+        name=who.name,
+        role_sources=role_sources(provider, who, admins),
+        admit_as=admit_status(provider, who, admins),
+        activate_pending=is_admin(who, admins),
+    )
 
 
 def pkce_challenge(verifier: str) -> str:

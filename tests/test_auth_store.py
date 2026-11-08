@@ -485,6 +485,7 @@ def _sign_in(
     *,
     roles: list[str] | None = None,
     admit_as: UserStatus = UserStatus.active,
+    activate_pending: bool = False,
 ) -> User:
     return store.sign_in_person(
         provider,
@@ -494,6 +495,7 @@ def _sign_in(
         name="Ann",
         role_sources={f"provider:{provider}": roles or []},
         admit_as=admit_as,
+        activate_pending=activate_pending,
     )
 
 
@@ -547,6 +549,16 @@ def test_approving_a_user_who_is_not_pending_fails(tmp_path: Path) -> None:
         store.approve_user(ann.id)
     with pytest.raises(UnknownUser):
         store.approve_user("usr_nobody")
+
+
+def test_activate_pending_promotes_only_a_pending_user(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = _sign_in(store, admit_as=UserStatus.pending)
+    assert _sign_in(store, activate_pending=True).status == UserStatus.active
+    store.set_disabled(ann.id, True)
+    with pytest.raises(UserDisabled):
+        _sign_in(store, activate_pending=True)
+    assert store.find_user(ann.id).status == UserStatus.disabled
 
 
 def test_deny_is_disable_and_enable_never_yields_pending(tmp_path: Path) -> None:

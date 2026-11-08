@@ -34,13 +34,7 @@ import tornado.httputil
 import tornado.web
 
 from woodglue.access import ANONYMOUS, Caller
-from woodglue.apps.identity_providers import (
-    SignInError,
-    TrustedProxy,
-    admit_status,
-    admits,
-    role_sources,
-)
+from woodglue.apps.identity_providers import SignInError, TrustedProxy, admits, sign_in
 from woodglue.auth_store import AuthStore, UserDisabled
 
 logger = logging.getLogger(__name__)
@@ -116,15 +110,7 @@ def _proxy_authentication(
             return Authentication(None, AuthVia.cookie)
         admins: list[str] = settings["config"].auth.admins
         try:
-            user = store.sign_in_person(
-                who.provider,
-                who.subject,
-                email=who.email,
-                email_verified=who.email_verified,
-                name=who.name,
-                role_sources=role_sources(proxy.config, who, admins),
-                admit_as=admit_status(proxy.config, who, admins),
-            )
+            user = sign_in(store, proxy.config, who, admins)
         except UserDisabled:
             return Authentication(None, AuthVia.cookie)
         # Clients that keep no cookies, such as scripts behind the proxy, share one Session.

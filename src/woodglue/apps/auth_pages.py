@@ -49,10 +49,9 @@ from woodglue.apps.identity_providers import (
     PendingSignIns,
     ProviderClient,
     SignInError,
-    admit_status,
     admits,
     pkce_challenge,
-    role_sources,
+    sign_in,
 )
 from woodglue.apps.ui_proxy import UiSockets
 from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled, UserPending
@@ -287,15 +286,7 @@ class SignInCallbackHandler(tornado.web.RequestHandler):
         store: AuthStore = self.application.settings["auth_store"]
         auth_config: AuthConfig = self.application.settings["config"].auth
         try:
-            user = store.sign_in_person(
-                provider_id,
-                who.subject,
-                email=who.email,
-                email_verified=who.email_verified,
-                name=who.name,
-                role_sources=role_sources(client.config, who, auth_config.admins),
-                admit_as=admit_status(client.config, who, auth_config.admins),
-            )
+            user = sign_in(store, client.config, who, auth_config.admins)
         except UserDisabled:
             self._fail(403, pending, "Your account is disabled.")
             return

@@ -129,7 +129,9 @@ as an admin approves them:
 
 People in `auth.admins` are created `active` regardless. `admit_as` only
 applies when a sign-in creates the User: someone already known keeps their
-status when they sign in again or through another provider. Approve with
+status when they sign in again or through another provider. The exception is
+a `pending` User you later add to `auth.admins`, who becomes `active` at their
+next sign-in; a disabled admin stays disabled. Approve with
 `wgl user approve <user>` or `system.approve_user`; deny with `disable`. See
 [Approving new people](access-control.md#approving-new-people).
 

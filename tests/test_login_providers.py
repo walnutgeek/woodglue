@@ -395,6 +395,24 @@ class TestAdmitAsPending(LoginTestCase):
         assert resp.code == 302
         assert self.status_of("boss@x.com") == "active"
 
+    def test_pending_user_added_to_admins_is_promoted_at_next_sign_in(self) -> None:
+        ann = {"sub": "u1", "email": "ann@x.com", "email_verified": True}
+        self.oidc_sign_in(ann)
+        self.github_sign_in(7, ["walnutgeek"], [])
+        assert self.status_of("ann@x.com") == "pending"
+        self._app.settings["config"].auth.admins.extend(["ann@x.com", "u7@gh.example"])
+        self.oidc_sign_in(ann)
+        self.github_sign_in(7, ["walnutgeek"], [])
+        assert self.status_of("ann@x.com") == "active"
+        assert self.status_of("u7@gh.example") == "active"
+
+    def test_disabled_admin_stays_disabled(self) -> None:
+        self.oidc_sign_in({"sub": "b", "email": "boss@x.com", "email_verified": True})
+        self.store.set_disabled(self.store.find_user("boss@x.com").id, True)
+        resp = self.oidc_sign_in({"sub": "b", "email": "boss@x.com", "email_verified": True})
+        assert resp.code == 403
+        assert self.status_of("boss@x.com") == "disabled"
+
     def test_sign_in_logs_name_users_by_id_and_hold_no_email(self) -> None:
         with self.assertLogs(level="INFO") as logs:
             self.oidc_sign_in({"sub": "u1", "email": "ann@x.com", "email_verified": True})

@@ -209,6 +209,15 @@ class TestTrustedProxyAdmitAsPending(ProxyTestCase):
             "boss@x.com": "active",
         }
 
+    def test_pending_user_added_to_admins_is_promoted_at_next_sign_in(self) -> None:
+        self.whoami({"X-Forwarded-Email": "cat@x.com"})
+        assert self.store.find_user("cat@x.com").status == "pending"
+        self._app.settings["config"].auth.admins.append("cat@x.com")
+        # Without a Session cookie, each request signs in again.
+        data, _ = self.whoami({"X-Forwarded-Email": "cat@x.com"})
+        assert self.store.find_user("cat@x.com").status == "active"
+        assert "admin" in data["result"]["roles"]
+
     def test_sign_in_logs_hold_no_email(self) -> None:
         with self.assertLogs(level="INFO") as logs:
             self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt()})
