@@ -435,6 +435,7 @@ class AuthStore:
                     (verified_email, UserKind.person),
                 ).fetchone()
             now = self.clock().isoformat()
+            created = False
             if row is None:
                 user_id = _new_id("usr")
                 conn.execute(
@@ -442,9 +443,7 @@ class AuthStore:
                     + "VALUES (?, ?, ?, ?, ?, ?)",
                     (user_id, name, verified_email, UserKind.person, admit_as, now),
                 )
-                if admit_as == UserStatus.pending:
-                    # No email: log lines cannot be erased when the User is deleted.
-                    logger.info("New pending User %s via %s", user_id, provider)
+                created = True
             else:
                 user_id = row["id"]
                 if row["status"] == UserStatus.disabled:
@@ -478,7 +477,11 @@ class AuthStore:
                         (user_id, role, source),
                     )
             user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-            return self._user_from_row(conn, user_row)
+            user = self._user_from_row(conn, user_row)
+        # Logged only once committed. No email: log lines cannot be erased with the User.
+        if created and user.status == UserStatus.pending:
+            logger.info("New pending User %s via %s", user.id, provider)
+        return user
 
     def _require_user(self, conn: sqlite3.Connection, user_id: str) -> UserStatus:
         """The User's status; raises `UnknownUser` if there is no such User."""

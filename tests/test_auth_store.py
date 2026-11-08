@@ -505,7 +505,7 @@ def test_admit_as_pending_applies_only_when_a_sign_in_creates_the_user(tmp_path:
     ann = _sign_in(store, admit_as=UserStatus.pending)
     assert ann.status == UserStatus.pending
     # Signing in again or through a second provider keeps the status, whatever its `admit_as`.
-    assert _sign_in(store, "github", "42", admit_as=UserStatus.active).status == "pending"
+    assert _sign_in(store, "github", "42", admit_as=UserStatus.active).status == UserStatus.pending
     store.approve_user(ann.id)
     assert _sign_in(store, admit_as=UserStatus.pending).status == UserStatus.active
     assert _sign_in(store, "gitlab", "9", admit_as=UserStatus.pending).id == ann.id
