@@ -19,7 +19,7 @@ Response bodies pass through as they arrive, so event streams and long polls
 work; request bodies are read in full first.
 
 Websockets opened under a Session are closed when it ends: at once on logout,
-and within `SWEEP_SECONDS` when it expires or its User is disabled.
+and within `SWEEP_SECONDS` when it expires or its User is disabled or deleted.
 """
 
 from __future__ import annotations

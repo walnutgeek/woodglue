@@ -50,11 +50,27 @@ wgl user add ci                 # create a Service User
 wgl user assign ci reporter     # give a Role (also: unassign)
 wgl user list                   # Users, kinds, Roles, state
 wgl user disable ci             # also revokes all its credentials (enable undoes the disable)
+wgl user delete ci              # erases the User and revokes all its credentials
 ```
 
 A `<user>` is a User id, email, or unique name. Admins can do the same over
 the API with `system.list_users`, `create_service_user`, `assign_role`,
-`unassign_role`, `disable_user`, and `enable_user`.
+`unassign_role`, `disable_user`, `enable_user`, and `delete_user`.
+
+`disable` keeps the record, so the person stays refused. `delete` is for erasure
+on request: it removes the User's name, email, Role assignments, Linked
+Identities, and credentials from `auth.db`, at once and with no undo, and takes
+no confirmation. The built-in `admin` cannot be deleted. As with `disable`,
+websockets to Process-backed UIs opened under a browser Session close within 30
+seconds; other open connections run until they close.
+
+A deleted person who signs in again becomes a new User, if the Identity
+Provider's `admit` rules let them in. Behind a trusted proxy that happens on
+their next request, so remove them at the proxy as well.
+
+Run history is not touched: `initiated_by` and `changed_by` keep the deleted
+User's id, which the Console then shows in place of a name. Server logs keep
+anything already written, including the email at each sign-in.
 
 ## Personal Access Tokens
 

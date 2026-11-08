@@ -88,6 +88,11 @@ class RunInitiatorTestCase(tornado.testing.AsyncHTTPTestCase):
             namespaces=namespaces, config=config, engine_registry=registry, auth_store=self.store
         )
 
+    def call_as_another_admin(self) -> None:
+        admin = self.store.create_service_user("root")
+        self.store.assign_role(admin.id, "admin")
+        self.token = self.store.create_token(admin.id, "t").secret
+
     def rpc(self, method: str, **params: Any) -> Any:
         body = json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": 1})
         resp = self.fetch(
@@ -127,4 +132,20 @@ class TestRunInitiators(RunInitiatorTestCase):
             "scheduler": "scheduler",
             "cli:bob": "cli:bob",
             "usr_gone": "usr_gone",
+        }
+
+    def test_run_history_keeps_the_id_of_a_deleted_user(self) -> None:
+        fired = self.rpc("system.fire_trigger", namespace="jobs", name="hook")
+        self.rpc("system.deactivate_trigger", namespace="jobs", name="hook")
+        self.rpc("system.activate_trigger", namespace="jobs", name="hook")
+        self.call_as_another_admin()
+
+        self.store.delete_user(self.user_id)
+
+        run = self.rpc("system.inspect_run", namespace="jobs", run_id=fired["run_id"])
+        assert run["initiated_by"] == self.user_id
+        trigger_store = self._app.settings["engine_registry"].get("jobs").trigger_store
+        assert trigger_store.get_activation("hook")["changed_by"] == self.user_id
+        assert self.rpc("system.describe_initiators", initiators=[self.user_id]) == {
+            self.user_id: self.user_id
         }

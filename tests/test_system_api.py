@@ -126,6 +126,7 @@ def test_build_system_namespace_has_all_methods() -> None:
         "create_service_user",
         "disable_user",
         "enable_user",
+        "delete_user",
         "assign_role",
         "unassign_role",
     }

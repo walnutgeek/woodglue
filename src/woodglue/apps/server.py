@@ -1,15 +1,26 @@
-"""Tornado application factory for the woodglue JSON-RPC server."""
+"""
+Tornado application factory for the woodglue JSON-RPC server.
+
+Secrets in query strings stay out of the logs: `create_app` writes the access log
+through `log_request` and filters the two Tornado loggers that record a failed
+request's URI (`tornado.general` and `tornado.application`), so every route gets
+`redact_queries`, including routes added later.
+"""
 
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote_plus
 
 import tornado.ioloop
+import tornado.log
 import tornado.web
 from lythonic.compose.namespace import Namespace
+from typing_extensions import override
 
 from woodglue.apps.auth_pages import CliCodes
 from woodglue.apps.identity_providers import (
@@ -29,6 +40,73 @@ from woodglue.engine import EngineRegistry
 from woodglue.mount import MountContext
 
 logger = logging.getLogger(__name__)
+
+_SECRET_PARAMS = frozenset({"code", "state", "token"})
+_REDACTED = "…"
+# Up to a space, the only thing that ends a URI in a request line, so a quote or comma
+# after one can never end a value early.
+_QUERY = re.compile(r"\?[^ ]*")
+
+
+def _redact_param(param: str) -> str:
+    raw_name, _, value = param.partition("=")
+    # Names are compared decoded, as `get_argument` sees them.
+    name = unquote_plus(raw_name)
+    # `next` holds the URL being returned to, whose own query can hold a secret:
+    # `/auth/cli` sends its `state` through login this way.
+    if name in _SECRET_PARAMS or (name == "next" and "?" in unquote_plus(value)):
+        return f"{raw_name}={_REDACTED}"
+    return param
+
+
+def redact_queries(text: str) -> str:
+    """
+    Hide the values of secret query parameters in `text`, keeping their names.
+
+    >>> redact_queries("GET /auth/callback/okta?code=abc&state=def (127.0.0.1)")
+    'GET /auth/callback/okta?code=…&state=… (127.0.0.1)'
+    >>> redact_queries("/auth/cli?state=a&state=b&code_challenge=c&redirect_uri=d")
+    '/auth/cli?state=…&state=…&code_challenge=c&redirect_uri=d'
+    >>> redact_queries("/auth/login?token=&next=/console/")
+    '/auth/login?token=…&next=/console/'
+    >>> redact_queries("/auth/login?next=%2Fauth%2Fcli%3Fstate%3Dabc")
+    '/auth/login?next=…'
+    >>> redact_queries("/x?%74oken=abc"), redact_queries("/x?a=\\xa0&code=abc")
+    ('/x?%74oken=…', '/x?a=\\xa0&code=…')
+    """
+    return _QUERY.sub(lambda m: "?" + "&".join(map(_redact_param, m[0][1:].split("&"))), text)
+
+
+def log_request(handler: tornado.web.RequestHandler) -> None:
+    """Tornado's default access log line and levels, with `redact_queries` applied."""
+    status = handler.get_status()
+    if status < 400:
+        log_method = tornado.log.access_log.info
+    elif status < 500:
+        log_method = tornado.log.access_log.warning
+    else:
+        log_method = tornado.log.access_log.error
+    request = handler.request
+    log_method(
+        "%d %s %.2fms",
+        status,
+        redact_queries(f"{request.method} {request.uri} ({request.remote_ip})"),
+        1000.0 * request.request_time(),
+    )
+
+
+class _RedactQueriesFilter(logging.Filter):
+    @override
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = redact_queries(message)
+        if redacted != message:
+            record.msg, record.args = redacted, None
+        return True
+
+
+# One instance, so that `addFilter` keeps repeated `create_app` calls from stacking it.
+_redact_queries_filter = _RedactQueriesFilter()
 
 
 def create_app(
@@ -148,8 +226,13 @@ def create_app(
     for proxy in trusted_proxies:
         tornado.ioloop.IOLoop.current().add_callback(proxy.load_keys)
 
+    # `RequestHandler.log_exception` writes the full URI here, on every kind of handler.
+    tornado.log.gen_log.addFilter(_redact_queries_filter)
+    tornado.log.app_log.addFilter(_redact_queries_filter)
+
     return tornado.web.Application(
         handlers,
+        log_function=log_request,
         namespaces=plain_namespaces,
         method_index=method_index,
         config=config,

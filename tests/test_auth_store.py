@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from woodglue.access import Action, resolve_roles
-from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled
+from woodglue.auth_store import ADMIN_USER_ID, AuthStore, UnknownUser, UserDisabled
 
 ROLES = resolve_roles(
     {"operator": ["call reports", "call billing", "read *"], "viewer": ["read *"]}
@@ -252,6 +252,82 @@ def test_disabled_person_cannot_sign_in(tmp_path: Path) -> None:
         store.sign_in_person(
             "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
         )
+
+
+def _rows_about(store: AuthStore, user_id: str) -> dict[str, int]:
+    """Direct counts, since erasure means the rows are gone, not merely unreachable."""
+    tables = {"users": "id", "role_assignments": "user_id"}
+    tables |= {"linked_identities": "user_id", "credentials": "user_id"}
+    with closing(sqlite3.connect(store.db_path)) as conn:
+        return {
+            table: conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (user_id,)
+            ).fetchone()[0]
+            for table, column in tables.items()
+        }
+
+
+def test_deleting_a_user_erases_it_and_ends_its_credentials_at_once(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = store.sign_in_person(
+        "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+    )
+    store.assign_role(ann.id, "operator")
+    token = store.create_token(ann.id, "t").secret
+    session = store.create_session(ann.id)
+    delegated = store.delegate(session, "reports-ui")
+    assert _rows_about(store, ann.id) == {
+        "users": 1,
+        "role_assignments": 1,
+        "linked_identities": 1,
+        "credentials": 3,
+    }
+
+    store.delete_user(ann.id)
+
+    assert set(_rows_about(store, ann.id).values()) == {0}
+    for secret in (token, session, delegated):
+        assert store.resolve(secret) is None
+    assert not store.session_is_live(session)
+    with pytest.raises(UnknownUser):
+        store.find_user(ann.id)
+    assert store.linked_user("okta", "sub-1") is None
+
+
+def test_deleting_one_user_leaves_others_alone(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    gone, kept = store.create_service_user("gone"), store.create_service_user("kept")
+    token = store.create_token(kept.id, "t").secret
+    store.delete_user(gone.id)
+    assert store.resolve(token) is not None
+
+
+def test_built_in_admin_cannot_be_deleted(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.ensure_admin_token()
+    with pytest.raises(ValueError, match="admin"):
+        store.delete_user(ADMIN_USER_ID)
+    assert store.resolve(store.admin_tokens()[0]) is not None
+
+
+def test_deleting_an_unknown_user_raises(tmp_path: Path) -> None:
+    with pytest.raises(UnknownUser):
+        _store(tmp_path).delete_user("usr_nobody")
+
+
+def test_deleted_person_signing_in_again_is_a_new_user(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = store.sign_in_person(
+        "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+    )
+    store.assign_role(ann.id, "operator")
+    store.delete_user(ann.id)
+    again = store.sign_in_person(
+        "okta", "sub-1", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+    )
+    assert again.id != ann.id
+    assert again.email == "ann@x.com"
+    assert again.roles == []
 
 
 def test_delegated_token_acts_as_the_session_user_and_dies_with_it(tmp_path: Path) -> None:

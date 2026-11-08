@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import tempfile
 import time
 from http.cookies import SimpleCookie
@@ -366,3 +367,80 @@ class TestTrustEmail(LoginTestCase):
         resp = self.oidc_sign_in({"sub": "e1", "email": "dana@x.com"})
         assert resp.code == 302
         assert self.whoami(resp)["email"] == "dana@x.com"
+
+
+class TestSecretsStayOutOfLogs(LoginTestCase):
+    """`code` and `state` must not reach any logger, whichever way a callback ends."""
+
+    def assert_not_logged(self, logs: list[logging.LogRecord], *secrets: str) -> None:
+        for record in logs:
+            for secret in secrets:
+                assert secret not in record.getMessage(), record.getMessage()
+
+    def callback_access_line(self, logs: list[logging.LogRecord]) -> logging.LogRecord:
+        [line] = [
+            r for r in logs if r.name == "tornado.access" and "/auth/callback/" in r.getMessage()
+        ]
+        return line
+
+    def test_successful_callback_is_logged_without_code_or_state(self) -> None:
+        query, cookie = self.start("okta")
+        self.fake.codes["c1-secret-code"] = {
+            "challenge": query["code_challenge"],
+            "claims": {
+                "nonce": query["nonce"],
+                "sub": "u1",
+                "email": "a@x.com",
+                "email_verified": True,
+            },
+        }
+        with self.assertLogs(level="INFO") as logs:
+            resp = self.callback("okta", query, cookie, code="c1-secret-code")
+        assert resp.code == 302
+        self.assert_not_logged(logs.records, "c1-secret-code", query["state"])
+        access = self.callback_access_line(logs.records)
+        assert access.levelno == logging.INFO
+        assert "302 GET /auth/callback/okta?code=…&state=… (127.0.0.1)" in access.getMessage()
+
+    def test_refused_callback_is_logged_at_warning_without_code_or_state(self) -> None:
+        query, _ = self.start("okta")
+        with self.assertLogs(level="INFO") as logs:
+            resp = self.callback("okta", query, "wgl_login=forged", code="c1-secret-code")
+        assert resp.code == 400
+        self.assert_not_logged(logs.records, "c1-secret-code", query["state"])
+        assert self.callback_access_line(logs.records).levelno == logging.WARNING
+        [warning] = [r for r in logs.records if r.name == "tornado.general"]
+        assert "does not match this browser" in warning.getMessage()
+
+    def test_failed_provider_exchange_does_not_log_code_or_state(self) -> None:
+        query, cookie = self.start("okta")
+        with self.assertLogs(level="INFO") as logs:
+            resp = self.callback("okta", query, cookie, code="c1-secret-code")
+        assert resp.code == 401
+        self.assert_not_logged(logs.records, "c1-secret-code", query["state"])
+
+    def test_crash_during_callback_does_not_log_code_or_state(self) -> None:
+        query, cookie = self.start("okta")
+
+        async def crash(*_: object) -> None:
+            raise RuntimeError("boom")
+
+        self._app.settings["login_providers"]["okta"].complete = crash
+        with self.assertLogs(level="INFO") as logs:
+            resp = self.callback("okta", query, cookie, code="c1-secret-code")
+        assert resp.code == 500
+        self.assert_not_logged(logs.records, "c1-secret-code", query["state"])
+        [error] = [r for r in logs.records if r.name == "tornado.application"]
+        assert error.exc_info is not None and "Uncaught exception" in error.getMessage()
+
+    def test_token_in_a_login_query_is_not_logged_when_rejected(self) -> None:
+        with self.assertLogs(level="INFO") as logs:
+            resp = self.fetch(
+                "/auth/login?token=pat-secret",
+                method="POST",
+                body="",
+                headers={"Origin": "http://evil.example"},
+                raise_error=False,
+            )
+        assert resp.code == 403
+        self.assert_not_logged(logs.records, "pat-secret")

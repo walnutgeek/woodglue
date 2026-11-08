@@ -53,7 +53,7 @@ from woodglue.apps.identity_providers import (
     role_sources,
 )
 from woodglue.apps.ui_proxy import UiSockets
-from woodglue.auth_store import AuthStore, UserDisabled
+from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled
 from woodglue.config import AuthConfig
 
 logger = logging.getLogger(__name__)
@@ -306,6 +306,7 @@ class SignInCallbackHandler(tornado.web.RequestHandler):
 
 
 _CLI_CODE_TTL_SECONDS = 120
+_BAD_CLI_CODE = "Unknown, expired, or already used code"
 
 _CONFIRM_PAGE = dedent("""
     <!DOCTYPE html>
@@ -462,8 +463,12 @@ class CliTokenHandler(tornado.web.RequestHandler):
         codes: CliCodes = self.application.settings["cli_codes"]
         entry = codes.redeem(code, verifier)
         if entry is None:
-            raise tornado.web.HTTPError(400, "Unknown, expired, or already used code")
+            raise tornado.web.HTTPError(400, _BAD_CLI_CODE)
         store: AuthStore = self.application.settings["auth_store"]
-        issued = store.create_token(entry.user_id, entry.name)
+        try:
+            issued = store.create_token(entry.user_id, entry.name)
+        except UnknownUser:
+            # Codes live in memory, so one can outlast the User who approved it.
+            raise tornado.web.HTTPError(400, _BAD_CLI_CODE) from None
         logger.info("Issued CLI token %s to %s", issued.id, entry.user_id)
         self.write({"token": issued.secret, "id": issued.id})

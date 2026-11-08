@@ -146,6 +146,20 @@ class TestRpcAccess(AccessTestCase):
         assert self.rpc("admin", "system.disable_user", user=viewer_id)["result"] is None
         assert self.rpc("viewer", "system.whoami")["error"]["code"] == -32000
 
+    def test_delete_user_needs_admin_and_ends_access_at_once(self) -> None:
+        err = self.rpc("operator", "system.delete_user", user="viewer")["error"]
+        assert err["code"] == -32003
+        assert self.rpc("viewer", "system.whoami")["result"]["name"] == "viewer"
+        assert self.rpc("admin", "system.delete_user", user="viewer")["result"] is None
+        assert self.rpc("viewer", "system.whoami")["error"]["code"] == -32000
+        users = self.rpc("admin", "system.list_users")["result"]
+        assert "viewer" not in {u["name"] for u in users}
+
+    def test_delete_user_refuses_admin_and_unknown_users(self) -> None:
+        for user in ("admin", "no-such-user"):
+            err = self.rpc("admin", "system.delete_user", user=user)["error"]
+            assert err["code"] == -32602, user
+
 
 class TestDocsAccess(AccessTestCase):
     def test_llms_txt_lists_only_visible_namespaces(self) -> None:
