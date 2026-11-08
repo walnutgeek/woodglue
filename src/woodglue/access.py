@@ -153,6 +153,15 @@ class Caller:
         return len(self.grant_sets) > 1
 
     @property
+    def has_grants(self) -> bool:
+        """
+        Whether the User holds any Grant at all, e.g. `False` for a User with no
+        Roles or a `pending` one. Only the first Grant set is the User's own;
+        later sets narrow it.
+        """
+        return bool(self.grant_sets and self.grant_sets[0])
+
+    @property
     def may_issue_credentials(self) -> bool:
         """
         Whether this Caller may create tokens or Sessions. Only an unnarrowed

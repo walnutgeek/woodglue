@@ -86,7 +86,9 @@ Every User has a status: `pending`, `active`, or `disabled`. With
 time is created `pending`. They are signed in and their provider Roles are
 recorded, but they hold no Grants, so every namespace, UI, and doc page is
 closed to them, and they cannot create Personal Access Tokens. `system.whoami`
-and signing out still work. People listed in `auth.admins` are always created
+and signing out still work. Opening a UI shows them a page saying their account
+is awaiting approval, with Sign out; an `active` User with no Grants sees one
+saying to ask an admin. People listed in `auth.admins` are always created
 `active`, so the first admin of a fresh deployment is never left waiting, and a
 `pending` User added to `auth.admins` later becomes `active` at their next
 sign-in. A disabled admin stays disabled.

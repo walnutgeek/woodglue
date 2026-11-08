@@ -15,7 +15,7 @@ from typing_extensions import override
 
 from woodglue.access import resolve_roles
 from woodglue.apps.server import create_app
-from woodglue.auth_store import AuthStore
+from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.cli import main_at
 from woodglue.config import WoodglueConfig
 
@@ -82,9 +82,39 @@ class TestVerify(tornado.testing.AsyncHTTPTestCase):
         assert json.loads(resp.headers["X-Woodglue-User"])["name"] == "reports-viewer"
         assert resp.headers["X-Woodglue-Token"]
 
+    def test_user_without_grants_gets_the_no_grants_page(self) -> None:
+        # Caddy's forward_auth copies a non-2xx response back to the browser.
+        resp = self.verify("/ui/reports/", "nobody")
+        assert resp.code == 403
+        assert resp.headers["Content-Type"].startswith("text/html")
+        body = resp.body.decode()
+        assert "no access yet" in body and "nobody" in body
+        assert 'action="/auth/logout"' in body
+
+    def test_pending_user_gets_the_awaiting_approval_page(self) -> None:
+        user = self.store.sign_in_person(
+            "google",
+            "sub-pat",
+            email="pat@example.com",
+            email_verified=True,
+            name="Pat",
+            role_sources={"google": ["reports-viewer"]},
+            admit_as=UserStatus.pending,
+        )
+        self.sessions["pat"] = self.store.create_session(user.id)
+        resp = self.verify("/ui/reports/", "pat")
+        assert resp.code == 403
+        body = resp.body.decode()
+        assert "Awaiting approval" in body and "no access yet" not in body
+        assert 'action="/auth/logout"' in body
+
+    def test_user_with_other_grants_gets_the_bare_403(self) -> None:
+        resp = self.verify("/anything", "reports-viewer", "?ui=grafana")
+        assert resp.code == 403
+        assert resp.body == b"Forbidden: requires 'view' on 'ui:grafana'"
+
     def test_ui_can_be_named_explicitly(self) -> None:
         assert self.verify("/anything", "reports-viewer", "?ui=reports").code == 200
-        assert self.verify("/anything", "reports-viewer", "?ui=grafana").code == 403
 
     def test_public_ui_passes_without_session(self) -> None:
         assert self.verify("/ui/status/index.html").code == 200
