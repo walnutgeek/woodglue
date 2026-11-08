@@ -32,6 +32,12 @@ _Avoid_: login, external account
 A named set of Grants given to Users, e.g. `admin`, `operator`, `viewer`.
 _Avoid_: group, permission set
 
+**Role assignment**:
+A Role given to a User by one source: _manual_ (by an admin) or _synced_ (set at
+each sign-in by an Identity Provider's role mapping or `auth.admins`). A synced
+assignment comes back at the next sign-in if removed.
+_Avoid_: membership, role binding
+
 **Grant**:
 Permission to perform one action on the targets matching a pattern, e.g. `call` on
 `reports`, or `view` on `ui:*`.

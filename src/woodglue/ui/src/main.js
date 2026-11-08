@@ -1040,20 +1040,25 @@ function roleGrants(name) {
   return role ? role.grants.join(", ") : "not defined";
 }
 
+function roleOption(r) {
+  return `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${escapeHtml(roleGrants(r.name))})</option>`;
+}
+
 // One chip per Role. A synced Role has no remove control: the next sign-in would add it back.
 function renderUserRoles(user) {
   const sources = {};
   for (const a of user.role_assignments) (sources[a.role] ||= []).push(a.source);
   const chips = Object.entries(sources).map(([role, from]) => {
     const synced = from.filter((s) => s !== "manual");
-    const how = synced.length ? "synced" : "manual";
+    const manual = synced.length < from.length;
+    const how = synced.length ? (manual ? "manual + synced" : "synced") : "manual";
     const title = synced.length
       ? `Synced from ${synced.join(", ")}; the next sign-in would add it back. Grants: ${roleGrants(role)}`
       : `Assigned by an admin. Grants: ${roleGrants(role)}`;
     const remove = synced.length
       ? ""
       : `<button class="chip-remove" data-unassign="${escapeHtml(role)}" title="Unassign ${escapeHtml(role)}">&times;</button>`;
-    return `<span class="role-chip ${how}" title="${escapeHtml(title)}">${escapeHtml(role)} <span class="role-how">${how}</span>${remove}</span>`;
+    return `<span class="role-chip ${synced.length ? "synced" : "manual"}" title="${escapeHtml(title)}">${escapeHtml(role)} <span class="role-how">${how}</span>${remove}</span>`;
   });
   return chips.join("") || '<span class="muted">none</span>';
 }
@@ -1069,13 +1074,12 @@ function renderUserActions(user) {
     actions.push(btn("enable", "Enable"));
   }
   actions.push(btn("delete", "Delete", "danger"));
-  const assignable = state.roles.filter(
-    (r) => !user.role_assignments.some((a) => a.role === r.name && a.source === "manual")
-  );
+  // Roles the User holds from any source are left out: a manual copy of a synced Role could not be removed here.
+  const assignable = state.roles.filter((r) => !user.roles.includes(r.name));
   if (assignable.length) {
     actions.push(`<select class="assign-select" aria-label="Assign a Role">
       <option value="">Assign Role...</option>
-      ${assignable.map((r) => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${escapeHtml(r.grants.join(", "))})</option>`).join("")}
+      ${assignable.map(roleOption).join("")}
     </select>`);
   }
   return actions.join("");
@@ -1086,13 +1090,13 @@ function renderUserPanel(user) {
   if (!panel || panel.userId !== user.id) return "";
   let body;
   if (panel.kind === "approve") {
-    const synced = new Set(user.role_assignments.map((a) => a.role));
+    const held = new Set(user.roles);
     const options = state.roles
       .map(
         (r) => `<label class="approve-role">
-          <input type="checkbox" value="${escapeHtml(r.name)}" ${synced.has(r.name) ? "checked disabled" : ""} />
-          <b>${escapeHtml(r.name)}</b> <span class="mono">${escapeHtml(r.grants.join(", "))}</span>
-          ${synced.has(r.name) ? '<span class="muted">already has it</span>' : ""}
+          <input type="checkbox" value="${escapeHtml(r.name)}" ${held.has(r.name) ? "checked disabled" : ""} />
+          <b>${escapeHtml(r.name)}</b> <span class="mono">${escapeHtml(roleGrants(r.name))}</span>
+          ${held.has(r.name) ? '<span class="muted">already has it</span>' : ""}
         </label>`
       )
       .join("");
@@ -1188,7 +1192,7 @@ function renderUsers(el) {
         renderView();
       } else if (b.dataset.panel === "confirm-delete") {
         userAction(user, "Delete", "system.delete_user");
-      } else {
+      } else if (b.dataset.panel === "confirm-approve") {
         const panel = b.closest(".user-panel");
         const roles = [...panel.querySelectorAll("input:checked:not(:disabled)")].map((i) => i.value);
         userAction(user, "Approve", "system.approve_user", { roles });

@@ -107,6 +107,8 @@ class WhoAmI(BaseModel):
 
 
 class RoleInfo(BaseModel):
+    """A Role defined in `woodglue.yaml`, or the built-in `admin`, with its Grants."""
+
     name: str
     grants: list[str]
 
