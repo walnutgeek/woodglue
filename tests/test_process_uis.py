@@ -212,6 +212,14 @@ class TestProxyHttp(ProcessUiTestCase):
         resp = self.get("/ui/echo/info", {"Cookie": f"wgl_session={self.session('nobody')}"})
         assert resp.code == 403
 
+    def test_user_without_grants_gets_the_no_grants_page(self) -> None:
+        resp = self.get("/ui/echo/", {"Cookie": f"wgl_session={self.session('nobody')}"})
+        assert resp.code == 403
+        assert resp.headers["Content-Type"].startswith("text/html")
+        body = resp.body.decode()
+        assert "no access yet" in body and "nobody" in body
+        assert 'action="/auth/logout"' in body
+
     def test_upstream_ui_is_proxied(self) -> None:
         resp = self.get(
             "/ui/external/info", {"Cookie": f"wgl_session={self.session('echo-viewer')}"}

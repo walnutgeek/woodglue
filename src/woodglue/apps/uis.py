@@ -6,18 +6,25 @@ the UI named `console`, served at `/console/`, and project UIs are served at
 `/ui/<name>/` (see `woodglue.config.UiEntry`). A page load without a Session
 redirects to `/auth/login?next=<path>`, and one without the Grant gets 403. A
 UI marked `public` skips both checks; the API it calls still needs a Caller.
+
+The 403 is a bare message naming the missing Grant, unless a User signed in
+with a Session has no Grants at all (e.g. just signed up with
+`default_roles: []`): then it is a page saying who is signed in and that there
+is no access yet, with Sign out.
 """
 
 from __future__ import annotations
 
+import html
 import json
 import os
+from textwrap import dedent
 from urllib.parse import quote
 
 import tornado.web
 from typing_extensions import override
 
-from woodglue.access import Action
+from woodglue.access import Action, Caller
 from woodglue.apps.authn import Authentication, AuthVia, authenticate
 from woodglue.auth_store import AuthStore
 
@@ -68,6 +75,77 @@ def identity_headers(
     return headers
 
 
+PAGE_STYLE = dedent("""
+    :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66;
+            --card: #ffffff; --border: #dcdcd6; --accent: #b4632d; --error: #b3261e; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #141413; --fg: #ecece8; --muted: #9a9a93; --card: #1e1e1c;
+              --border: #34342f; --accent: #e08a4f; --error: #f2b8b5; }
+    }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+           background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+    main { width: min(420px, calc(100vw - 32px)); background: var(--card);
+           border: 1px solid var(--border); border-radius: 10px; padding: 28px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p { color: var(--muted); margin: 0 0 20px; }
+    label { display: block; font-size: 13px; margin-bottom: 6px; }
+    input { box-sizing: border-box; width: 100%; padding: 10px 12px; font: 13px monospace;
+            border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+            color: var(--fg); }
+    button { margin-top: 16px; width: 100%; padding: 10px; border: 0; border-radius: 6px;
+             background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+    .error { color: var(--error); margin: 0 0 16px; }
+    .providers { display: grid; gap: 8px; margin-bottom: 20px; }
+    .providers a { display: block; text-align: center; padding: 10px; border-radius: 6px;
+                   border: 1px solid var(--border); color: var(--fg); text-decoration: none; }
+    .divider { text-align: center; color: var(--muted); font-size: 12px; margin: 4px 0 16px; }
+    """).strip()
+"""CSS shared by woodglue's own pages: sign-in and no-Grants."""
+
+
+_NO_GRANTS_PAGE = dedent("""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>{heading} - woodglue</title>
+      <style>{style}</style>
+    </head>
+    <body>
+      <main>
+        <h1>{heading}</h1>
+        <p>{message}</p>
+        <p>Signed in as <b>{name}</b>{email}.</p>
+        <form method="post" action="/auth/logout">
+          <button type="submit">Sign out</button>
+        </form>
+      </main>
+    </body>
+    </html>
+    """).strip()
+
+
+def _no_grants_text(caller: Caller) -> tuple[str, str]:  # pyright: ignore[reportUnusedParameter]
+    """The heading and message of the no-Grants page for `caller`."""
+    return "No access yet", "Your account has no access yet; ask an admin to give you a Role."
+
+
+def _no_grants_page(caller: Caller) -> str:
+    """
+    The page for a signed-in User with no Grants at all: who is signed in, why
+    nothing opens, and a Sign out button.
+    """
+    heading, message = _no_grants_text(caller)
+    return _NO_GRANTS_PAGE.format(
+        style=PAGE_STYLE,
+        heading=html.escape(heading),
+        message=html.escape(message),
+        name=html.escape(caller.name),
+        email=f" ({html.escape(caller.email)})" if caller.email else "",
+    )
+
+
 def require_view(handler: tornado.web.RequestHandler, ui_name: str) -> Authentication | None:
     """
     Check that the request may open `ui_name`, finishing it with a login
@@ -80,7 +158,13 @@ def require_view(handler: tornado.web.RequestHandler, ui_name: str) -> Authentic
         return None
     if not auth.caller.can(Action.view, f"ui:{ui_name}"):
         handler.set_status(403)
-        handler.finish(f"Forbidden: requires 'view' on 'ui:{ui_name}'")
+        # A User with some Grants has access and opened the wrong UI; one signed
+        # in with none (e.g. just signed up) needs to know to ask an admin.
+        if auth.caller.has_grants or auth.via != AuthVia.cookie:
+            handler.finish(f"Forbidden: requires 'view' on 'ui:{ui_name}'")
+        else:
+            handler.set_header("Content-Type", "text/html; charset=UTF-8")
+            handler.finish(_no_grants_page(auth.caller))
         return None
     return auth
 

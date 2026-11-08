@@ -54,6 +54,7 @@ from woodglue.apps.identity_providers import (
     sign_in,
 )
 from woodglue.apps.ui_proxy import UiSockets
+from woodglue.apps.uis import PAGE_STYLE
 from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled, UserPending
 from woodglue.config import AuthConfig
 
@@ -83,31 +84,7 @@ _PAGE = dedent("""
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>Sign in to woodglue</title>
-      <style>
-        :root {{ color-scheme: light dark; --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66;
-                --card: #ffffff; --border: #dcdcd6; --accent: #b4632d; --error: #b3261e; }}
-        @media (prefers-color-scheme: dark) {{
-          :root {{ --bg: #141413; --fg: #ecece8; --muted: #9a9a93; --card: #1e1e1c;
-                  --border: #34342f; --accent: #e08a4f; --error: #f2b8b5; }}
-        }}
-        body {{ margin: 0; min-height: 100vh; display: grid; place-items: center;
-               background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }}
-        main {{ width: min(420px, calc(100vw - 32px)); background: var(--card);
-               border: 1px solid var(--border); border-radius: 10px; padding: 28px; }}
-        h1 {{ font-size: 20px; margin: 0 0 4px; }}
-        p {{ color: var(--muted); margin: 0 0 20px; }}
-        label {{ display: block; font-size: 13px; margin-bottom: 6px; }}
-        input {{ box-sizing: border-box; width: 100%; padding: 10px 12px; font: 13px monospace;
-                border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
-                color: var(--fg); }}
-        button {{ margin-top: 16px; width: 100%; padding: 10px; border: 0; border-radius: 6px;
-                 background: var(--accent); color: #fff; font: inherit; cursor: pointer; }}
-        .error {{ color: var(--error); margin: 0 0 16px; }}
-        .providers {{ display: grid; gap: 8px; margin-bottom: 20px; }}
-        .providers a {{ display: block; text-align: center; padding: 10px; border-radius: 6px;
-                       border: 1px solid var(--border); color: var(--fg); text-decoration: none; }}
-        .divider {{ text-align: center; color: var(--muted); font-size: 12px; margin: 4px 0 16px; }}
-      </style>
+      <style>{style}</style>
     </head>
     <body>
       <main>
@@ -135,6 +112,7 @@ def render_login_page(next_url: str, error: str | None = None, providers_html: s
         else "Paste a Personal Access Token, e.g. the output of <code>wgl token</code>."
     )
     return _PAGE.format(
+        style=PAGE_STYLE,
         intro=intro,
         error=f'<p class="error">{html.escape(error)}</p>' if error else "",
         providers=providers_html,
