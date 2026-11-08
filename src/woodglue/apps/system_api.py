@@ -516,9 +516,12 @@ def build_system_namespace(
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def unassign_role(user: str, role: str) -> None:
-        """Take a Role away from a User."""
+        """Take a Role away from a User. The built-in `admin` always keeps `admin`."""
         check(Action.admin)
-        _store().unassign_role(_find_user(user).id, role)
+        try:
+            _store().unassign_role(_find_user(user).id, role)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     for fn, fn_nsref in [
         (list_uis, "list_uis"),

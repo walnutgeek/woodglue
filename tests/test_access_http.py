@@ -164,6 +164,11 @@ class TestRpcAccess(AccessTestCase):
         err = self.rpc("nobody", "system.describe_initiators", initiators=[viewer_id])["error"]
         assert err["code"] == -32003 and "read" in err["message"]
 
+    def test_unassign_role_refuses_to_take_admin_from_the_built_in_admin(self) -> None:
+        err = self.rpc("admin", "system.unassign_role", user="admin", role="admin")["error"]
+        assert err["code"] == -32602 and "cannot lose the 'admin' Role" in err["message"]
+        assert self.rpc("admin", "system.list_users")["result"]
+
     def test_delete_user_refuses_admin_and_unknown_users(self) -> None:
         for user in ("admin", "no-such-user"):
             err = self.rpc("admin", "system.delete_user", user=user)["error"]

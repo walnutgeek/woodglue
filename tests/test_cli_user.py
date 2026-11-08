@@ -124,6 +124,17 @@ def test_delete_refuses_admin_and_unknown_users_with_message(
     assert "admin" in {u.name for u in _store(tmp_path).list_users()}
 
 
+def test_unassigning_admin_from_the_built_in_admin_exits_with_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path)
+    _wgl(tmp_path, capsys, "user", "list")
+    with pytest.raises(SystemExit) as exc_info:
+        main_at.run_args(["wgl", f"--data={tmp_path}", "user", "unassign", "admin", "admin"])
+    assert "cannot lose the 'admin' Role" in str(exc_info.value.code)
+    assert _store(tmp_path).find_user("admin").roles == ["admin"]
+
+
 def test_unknown_user_or_role_exits_with_message(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

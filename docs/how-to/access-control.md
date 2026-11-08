@@ -44,7 +44,8 @@ needed Grant answers `-32003 Forbidden`.
   instead (see below). See [Identity Providers](identity-providers.md).
 - **Service Users** are for daemons and CI. They have no sign-in, only
   Personal Access Tokens.
-- **`admin`** is a built-in Service User; `wgl token` prints its tokens.
+- **`admin`** is a built-in Service User; `wgl token` prints its tokens. It
+  cannot be disabled, deleted, or have the `admin` Role unassigned.
 
 ```bash
 wgl user add ci                 # create a Service User

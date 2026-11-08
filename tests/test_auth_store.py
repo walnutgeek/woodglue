@@ -393,6 +393,17 @@ def test_built_in_admin_cannot_be_deleted(tmp_path: Path) -> None:
     assert store.resolve(store.admin_tokens()[0]) is not None
 
 
+def test_built_in_admin_keeps_the_admin_role(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.ensure_admin_token()
+    store.assign_role(ADMIN_USER_ID, "viewer")
+    with pytest.raises(ValueError, match="cannot lose the 'admin' Role"):
+        store.unassign_role(ADMIN_USER_ID, "admin")
+    store.unassign_role(ADMIN_USER_ID, "viewer")
+    caller = store.resolve(store.admin_tokens()[0])
+    assert caller is not None and caller.roles == ("admin",) and caller.can(Action.admin)
+
+
 def test_deleting_an_unknown_user_raises(tmp_path: Path) -> None:
     with pytest.raises(UnknownUser):
         _store(tmp_path).delete_user("usr_nobody")

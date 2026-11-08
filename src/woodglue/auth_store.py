@@ -33,7 +33,8 @@ do.
 
 The built-in `admin` Service User owns the tokens that `wgl token` prints. Tokens
 from the pre-Users `tokens` table are migrated to it on first open, so existing
-scripts keep working.
+scripts keep working. It cannot be disabled, deleted, or lose the `admin` Role,
+so `wgl token` always yields full access.
 """
 
 from __future__ import annotations
@@ -332,6 +333,8 @@ class AuthStore:
 
     def unassign_role(self, user_id: str, role: str) -> None:
         """Remove a Role from every source; a provider re-adds its own at the next sign-in."""
+        if user_id == ADMIN_USER_ID and role == ADMIN_ROLE:
+            raise ValueError("The built-in admin User cannot lose the 'admin' Role")
         with self._connect() as conn:
             self._require_user(conn, user_id)
             conn.execute(
