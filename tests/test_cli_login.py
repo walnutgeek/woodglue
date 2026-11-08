@@ -25,7 +25,7 @@ from typing_extensions import override
 from woodglue.access import resolve_roles
 from woodglue.apps.server import create_app
 from woodglue.apps.system_api import build_system_namespace
-from woodglue.auth_store import AuthStore
+from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.cli_login import load_credentials, login, logout
 from woodglue.client import WoodglueClient
 from woodglue.config import NamespaceEntry, WoodglueConfig
@@ -70,7 +70,11 @@ class CliLoginTestCase(tornado.testing.AsyncHTTPTestCase):
         return create_app(namespaces=namespaces, config=config, auth_store=self.store)
 
     def authorize(
-        self, method: str = "GET", cookie: bool = True, **params: str
+        self,
+        method: str = "GET",
+        cookie: bool = True,
+        session: str | None = None,
+        **params: str,
     ) -> tornado.httpclient.HTTPResponse:
         query = {
             "redirect_uri": "http://127.0.0.1:9/callback",
@@ -79,7 +83,7 @@ class CliLoginTestCase(tornado.testing.AsyncHTTPTestCase):
             "name": "wgl on laptop",
         }
         query.update(params)
-        headers = {"Cookie": f"wgl_session={self.session}"} if cookie else {}
+        headers = {"Cookie": f"wgl_session={session or self.session}"} if cookie else {}
         if method == "POST":
             return self.fetch(
                 "/auth/cli",
@@ -122,6 +126,32 @@ class TestCliEndpoints(CliLoginTestCase):
         code = parse_qs(urlsplit(resp.headers["Location"]).query)["code"][0]
         self.store.delete_user(self.user_id)
         assert self.exchange(code, "v" * 43).code == 400
+
+    def test_code_approved_before_a_disable_is_refused_even_after_enable(self) -> None:
+        for enable_after in (False, True):
+            session = self.store.create_session(self.user_id)
+            resp = self.authorize("POST", session=session)
+            code = parse_qs(urlsplit(resp.headers["Location"]).query)["code"][0]
+            self.store.set_disabled(self.user_id, True)
+            if enable_after:
+                self.store.set_disabled(self.user_id, False)
+            assert self.exchange(code, "v" * 43).code == 400, enable_after
+            self.store.set_disabled(self.user_id, False)
+        assert self.store.list_tokens(self.user_id) == []
+
+    def test_pending_user_cannot_authorize_the_cli(self) -> None:
+        pending = self.store.sign_in_person(
+            "okta",
+            "p1",
+            email="pat@x.com",
+            email_verified=True,
+            name="Pat",
+            role_sources={},
+            admit_as=UserStatus.pending,
+        )
+        session = self.store.create_session(pending.id)
+        assert self.authorize(session=session).code == 403
+        assert self.authorize("POST", session=session).code == 403
 
     def test_only_loopback_redirects_are_allowed(self) -> None:
         for bad in ("https://evil.example/cb", "http://10.0.0.5:8000/cb", "http://127.0.0.1/cb"):

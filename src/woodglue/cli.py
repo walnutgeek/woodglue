@@ -9,10 +9,13 @@ Commands:
     wgl token          Print the admin token(s), creating one if none exist
     wgl token --new    Replace all admin tokens with a single new one
     wgl user ...       Manage Users, Role assignments, and Personal Access Tokens:
-        list                       Users with their kind, Roles, and state
+        list                       Users with their kind, status, and Roles
         add <name>                 Create a Service User
         assign|unassign <user> <role>
-        disable|enable <user>      Disabling also revokes the User's credentials
+        approve <user> [--role=viewer,operator]
+                                   Make a pending User active, with extra Roles
+        disable|enable <user>      Disabling also revokes the User's credentials;
+                                   it is also how a pending User is denied
         delete <user>              Erase the User and its credentials; run history keeps its id
         issue <user> <name> [--days=N] [--grants="call reports, read *"]
                                    Create a Personal Access Token; prints the secret
@@ -421,13 +424,13 @@ def _user_action(name: str) -> Callable[[Callable[..., None]], Callable[..., Non
     def register(fn: Callable[..., None]) -> Callable[..., None]:
         from functools import wraps
 
-        from woodglue.auth_store import UnknownUser
+        from woodglue.auth_store import UnknownUser, UserDisabled, UserPending
 
         @wraps(fn)
         def run(*args: Any, **kwargs: Any) -> None:
             try:
                 fn(*args, **kwargs)
-            except (UnknownUser, ValueError) as exc:
+            except (UnknownUser, UserDisabled, UserPending, ValueError) as exc:
                 sys.exit(str(exc))
 
         run.__name__ = name
@@ -439,11 +442,10 @@ def _user_action(name: str) -> Callable[[Callable[..., None]], Callable[..., Non
 
 @_user_action("list")
 def user_list(ctx: RunContext) -> None:
-    """List Users with their kind, Roles, and state"""
+    """List Users with their kind, status, and Roles"""
     for u in _auth_store(ctx).list_users():
-        state = " disabled" if u.disabled else ""
         email = f" <{u.email}>" if u.email else ""
-        print(f"{u.id}\t{u.kind}\t{u.name}{email}\troles={','.join(u.roles)}{state}")
+        print(f"{u.id}\t{u.kind}\t{u.status}\t{u.name}{email}\troles={','.join(u.roles)}")
 
 
 @_user_action("add")
@@ -466,6 +468,14 @@ def user_unassign(ctx: RunContext, user: str, role: str) -> None:
     store.unassign_role(store.find_user(user).id, role)
 
 
+@_user_action("approve")
+def user_approve(ctx: RunContext, user: str, role: str = "") -> None:
+    """Make a pending User active; --role adds Roles (comma-separated)"""
+    store = _auth_store(ctx)
+    roles = [r.strip() for r in role.split(",") if r.strip()]
+    store.approve_user(store.find_user(user).id, roles)
+
+
 @_user_action("disable")
 def user_disable(ctx: RunContext, user: str) -> None:
     """Disable a User and revoke all of its credentials"""
@@ -475,7 +485,7 @@ def user_disable(ctx: RunContext, user: str) -> None:
 
 @_user_action("enable")
 def user_enable(ctx: RunContext, user: str) -> None:
-    """Re-enable a disabled User"""
+    """Re-enable a disabled User; a pending User must be approved instead"""
     store = _auth_store(ctx)
     store.set_disabled(store.find_user(user).id, False)
 

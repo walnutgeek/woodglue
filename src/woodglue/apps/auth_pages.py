@@ -38,6 +38,7 @@ from typing_extensions import override
 from woodglue.access import Caller
 from woodglue.apps.authn import (
     authenticate,
+    bearer_token,
     clear_session_cookie,
     is_same_origin,
     public_scheme,
@@ -48,12 +49,13 @@ from woodglue.apps.identity_providers import (
     PendingSignIns,
     ProviderClient,
     SignInError,
+    admit_status,
     admits,
     pkce_challenge,
     role_sources,
 )
 from woodglue.apps.ui_proxy import UiSockets
-from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled
+from woodglue.auth_store import AuthStore, UnknownUser, UserDisabled, UserPending
 from woodglue.config import AuthConfig
 
 logger = logging.getLogger(__name__)
@@ -279,7 +281,7 @@ class SignInCallbackHandler(tornado.web.RequestHandler):
             self._fail(401, pending, f"Sign-in with {name} failed.")
             return
         if not admits(client.config.admit, who):
-            logger.info("Sign-in with %s refused for %s (%s)", provider_id, who.subject, who.email)
+            logger.info("Sign-in with %s refused for %s", provider_id, who.subject)
             self._fail(403, pending, f"Your {name} account is not allowed on this server.")
             return
         store: AuthStore = self.application.settings["auth_store"]
@@ -292,11 +294,12 @@ class SignInCallbackHandler(tornado.web.RequestHandler):
                 email_verified=who.email_verified,
                 name=who.name,
                 role_sources=role_sources(client.config, who, auth_config.admins),
+                admit_as=admit_status(client.config, who, auth_config.admins),
             )
         except UserDisabled:
             self._fail(403, pending, "Your account is disabled.")
             return
-        logger.info("Signed in %s (%s) with %s", user.id, user.email, provider_id)
+        logger.info("Signed in %s with %s", user.id, provider_id)
         set_session_cookie(self, store.create_session(user.id))
         self.redirect(pending.next_url)
 
@@ -362,6 +365,8 @@ class _CliCode:
     user_id: str
     name: str
     challenge: str
+    approved_with: str
+    """Secret of the credential that approved the code, re-checked at redemption."""
     created: float = field(default_factory=time.monotonic)
 
 
@@ -373,12 +378,12 @@ class CliCodes:
     def __init__(self) -> None:
         self._codes = {}
 
-    def add(self, user_id: str, name: str, challenge: str) -> str:
+    def add(self, user_id: str, name: str, challenge: str, approved_with: str) -> str:
         """Issue a code for an approved request, dropping expired ones."""
         cutoff = time.monotonic() - _CLI_CODE_TTL_SECONDS
         self._codes = {c: v for c, v in self._codes.items() if v.created >= cutoff}
         code = secrets.token_urlsafe(24)
-        self._codes[code] = _CliCode(user_id, name, challenge)
+        self._codes[code] = _CliCode(user_id, name, challenge, approved_with)
         return code
 
     def redeem(self, code: str, verifier: str) -> _CliCode | None:
@@ -406,22 +411,26 @@ class CliAuthorizeHandler(tornado.web.RequestHandler):
         params["name"] = params["name"].strip() or "wgl"
         return params
 
-    def _caller(self) -> Caller | None:
-        caller = authenticate(self).caller
+    def _caller(self) -> tuple[Caller, str] | None:
+        """The approving Caller and its credential's secret, or `None` after redirecting."""
+        auth = authenticate(self)
+        caller = auth.caller
         if caller is None:
             self.redirect(f"/auth/login?next={quote(self.request.uri or '/', safe='')}")
-        elif caller.user_id is None:
+            return None
+        if caller.user_id is None:
             raise tornado.web.HTTPError(400, "Auth is disabled; the CLI needs no token")
-        elif not caller.may_issue_credentials:
+        if not caller.may_issue_credentials:
             raise tornado.web.HTTPError(403, "This credential cannot create tokens")
-        return caller
+        return caller, auth.session_secret or bearer_token(self.request)
 
     @override
     def get(self) -> None:
         params = self._params()
-        caller = self._caller()
-        if caller is None:
+        approval = self._caller()
+        if approval is None:
             return
+        caller, _ = approval
         fields = "".join(
             f'<input type="hidden" name="{k}" value="{html.escape(v, quote=True)}">'
             for k, v in params.items()
@@ -439,12 +448,13 @@ class CliAuthorizeHandler(tornado.web.RequestHandler):
         if not is_same_origin(self.request):
             raise tornado.web.HTTPError(403, "Cross-site authorization rejected")
         params = self._params()
-        caller = self._caller()
-        if caller is None:
+        approval = self._caller()
+        if approval is None:
             return
+        caller, secret = approval
         assert caller.user_id is not None
         codes: CliCodes = self.application.settings["cli_codes"]
-        code = codes.add(caller.user_id, params["name"], params["code_challenge"])
+        code = codes.add(caller.user_id, params["name"], params["code_challenge"], secret)
         self.redirect(
             f"{params['redirect_uri']}?{urlencode({'code': code, 'state': params['state']})}"
         )
@@ -465,10 +475,19 @@ class CliTokenHandler(tornado.web.RequestHandler):
         if entry is None:
             raise tornado.web.HTTPError(400, _BAD_CLI_CODE)
         store: AuthStore = self.application.settings["auth_store"]
+        # Codes live in memory, so one can outlast the User who approved it, or the
+        # credential it was approved with: disabling a User deletes its credentials,
+        # so a code approved before a disable stays refused after an enable.
+        approver = store.resolve(entry.approved_with)
+        if (
+            approver is None
+            or approver.user_id != entry.user_id
+            or not approver.may_issue_credentials
+        ):
+            raise tornado.web.HTTPError(400, _BAD_CLI_CODE)
         try:
             issued = store.create_token(entry.user_id, entry.name)
-        except UnknownUser:
-            # Codes live in memory, so one can outlast the User who approved it.
+        except (UnknownUser, UserDisabled, UserPending):
             raise tornado.web.HTTPError(400, _BAD_CLI_CODE) from None
         logger.info("Issued CLI token %s to %s", issued.id, entry.user_id)
         self.write({"token": issued.secret, "id": issued.id})

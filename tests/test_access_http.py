@@ -14,7 +14,7 @@ from typing_extensions import override
 from woodglue.access import resolve_roles
 from woodglue.apps.server import create_app
 from woodglue.apps.system_api import build_system_namespace
-from woodglue.auth_store import AuthStore
+from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig, WoodglueStorageConfig
 from woodglue.hello import hello
 
@@ -159,6 +159,81 @@ class TestRpcAccess(AccessTestCase):
         for user in ("admin", "no-such-user"):
             err = self.rpc("admin", "system.delete_user", user=user)["error"]
             assert err["code"] == -32602, user
+
+
+class TestPendingUser(AccessTestCase):
+    """A pending person signed in with a Session, before and after approval."""
+
+    user_id: str  # pyright: ignore[reportUninitializedInstanceVariable]
+    cookie: str  # pyright: ignore[reportUninitializedInstanceVariable]
+
+    @override
+    def setUp(self) -> None:
+        super().setUp()
+        user = self.store.sign_in_person(
+            "okta",
+            "p1",
+            email="pat@x.com",
+            email_verified=True,
+            name="Pat",
+            role_sources={"provider:okta": ["operator"]},
+            admit_as=UserStatus.pending,
+        )
+        self.user_id = user.id
+        self.cookie = f"wgl_session={self.store.create_session(user.id)}"
+
+    def as_pat(self, method: str, **params: Any) -> dict[str, Any]:
+        body = json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": 1})
+        resp = self.fetch(
+            "/rpc",
+            method="POST",
+            body=body,
+            headers={"Content-Type": "application/json", "Cookie": self.cookie},
+        )
+        return json.loads(resp.body)
+
+    def get_as_pat(self, path: str) -> tornado.httpclient.HTTPResponse:
+        return self.fetch(
+            path, headers={"Cookie": self.cookie}, follow_redirects=False, raise_error=False
+        )
+
+    def test_synced_roles_grant_nothing_until_approval(self) -> None:
+        assert self.as_pat("system.whoami")["result"]["roles"] == ["operator"]
+        assert self.as_pat("reports.hello", name="ab")["error"]["code"] == -32601
+        prefixes = [n["prefix"] for n in self.as_pat("system.list_namespaces")["result"]]
+        assert prefixes == ["system"]
+        assert "reports.hello" not in self.get_as_pat("/docs/llms.txt").body.decode()
+        assert self.get_as_pat("/docs/methods/reports.hello.md").code == 404
+        assert self.get_as_pat("/console/").code == 403
+
+        assert self.rpc("admin", "system.approve_user", user="pat@x.com")["result"] is None
+        assert self.as_pat("reports.hello", name="ab")["result"] == 2
+        assert "reports.hello" in self.get_as_pat("/docs/llms.txt").body.decode()
+
+    def test_pending_user_cannot_create_tokens_but_can_sign_out(self) -> None:
+        err = self.as_pat("system.create_token", name="laptop")["error"]
+        assert err["code"] == -32602 and "pending" in err["message"]
+        resp = self.fetch(
+            "/auth/logout",
+            method="POST",
+            body="",
+            headers={"Cookie": self.cookie},
+            follow_redirects=False,
+            raise_error=False,
+        )
+        assert resp.code == 302
+        assert self.as_pat("system.whoami")["error"]["code"] == -32000
+
+    def test_approve_user_needs_admin_and_a_pending_user(self) -> None:
+        err = self.rpc("operator", "system.approve_user", user=self.user_id)["error"]
+        assert err["code"] == -32003
+        result = self.rpc("admin", "system.approve_user", user=self.user_id, roles=["viewer"])
+        assert result["result"] is None
+        users = {u["id"]: u for u in self.rpc("admin", "system.list_users")["result"]}
+        assert users[self.user_id]["status"] == "active"
+        assert users[self.user_id]["roles"] == ["operator", "viewer"]
+        err = self.rpc("admin", "system.approve_user", user=self.user_id)["error"]
+        assert err["code"] == -32602 and "not pending" in err["message"]
 
 
 class TestDocsAccess(AccessTestCase):

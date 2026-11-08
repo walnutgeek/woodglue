@@ -16,7 +16,9 @@ authorization code flow with PKCE:
 - The person is then checked against the provider's `admit` rules, signed in
   as a local User (`AuthStore.sign_in_person`), and given a Session.
 
-Admission and claim-to-Role mapping are re-evaluated at every sign-in.
+Admission and claim-to-Role mapping are re-evaluated at every sign-in. A User
+the sign-in creates gets the status `admit_status` picks: `pending` under the
+provider's `admit_as: pending`, unless the person is in `auth.admins`.
 
 A trusted proxy (`JwtProxy`, `HeaderProxy`) has no round trip: it asserts the
 identity on every request, and `woodglue.apps.authn` turns the first valid
@@ -50,6 +52,7 @@ import tornado.httputil
 from typing_extensions import override
 
 from woodglue.access import ADMIN_ROLE
+from woodglue.auth_store import UserStatus
 from woodglue.config import AdmitRules, ProviderConfig, ProviderKind
 
 logger = logging.getLogger(__name__)
@@ -97,6 +100,30 @@ def admits(rules: AdmitRules, who: ExternalIdentity) -> bool:
     return any(g in who.groups for g in rules.groups)
 
 
+def is_admin(who: ExternalIdentity, admins: list[str]) -> bool:
+    """Whether `who` is one of the configured `auth.admins`, by verified email."""
+    return bool(who.email and who.email_verified) and (who.email or "").lower() in (
+        a.lower() for a in admins
+    )
+
+
+def admit_status(provider: ProviderConfig, who: ExternalIdentity, admins: list[str]) -> UserStatus:
+    """
+    The status of a User a sign-in creates: the provider's `admit_as`, except
+    that configured admins are always `active`, so a fresh deployment's first
+    admin is never left waiting for approval.
+
+    >>> p = ProviderConfig(id="gh", kind="github", client_id="c", client_secret="s",
+    ...     admit=AdmitRules(anyone=True), admit_as="pending")
+    >>> ann = ExternalIdentity("gh", "1", "ann@x.com", True, "Ann")
+    >>> str(admit_status(p, ann, [])), str(admit_status(p, ann, ["ann@x.com"]))
+    ('pending', 'active')
+    """
+    if is_admin(who, admins):
+        return UserStatus.active
+    return UserStatus(provider.admit_as)
+
+
 def role_sources(
     provider: ProviderConfig, who: ExternalIdentity, admins: list[str]
 ) -> dict[str, list[str]]:
@@ -114,10 +141,8 @@ def role_sources(
     roles = set(provider.default_roles)
     for group in who.groups:
         roles.update(provider.group_roles.get(group, []))
-    is_admin = bool(who.email and who.email_verified) and (who.email or "").lower() in (
-        a.lower() for a in admins
-    )
-    return {f"provider:{provider.id}": sorted(roles), "admins": [ADMIN_ROLE] if is_admin else []}
+    admin = [ADMIN_ROLE] if is_admin(who, admins) else []
+    return {f"provider:{provider.id}": sorted(roles), "admins": admin}
 
 
 def pkce_challenge(verifier: str) -> str:

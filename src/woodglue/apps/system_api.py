@@ -19,10 +19,12 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `describe_initiators` names the Users behind runs' `initiated_by`.
 - `whoami` and a User's own tokens (`create_token`, `list_tokens`,
   `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
-  a Session can create tokens (see `Caller.may_issue_credentials`).
-- User management (`list_users`, `create_service_user`, `disable_user`,
-  `enable_user`, `delete_user`, `assign_role`, `unassign_role`) and other Users'
-  tokens need `admin`.
+  a Session of an `active` User can create tokens (see
+  `Caller.may_issue_credentials`).
+- User management (`list_users`, `create_service_user`, `approve_user`,
+  `disable_user`, `enable_user`, `delete_user`, `assign_role`,
+  `unassign_role`) and other Users' tokens need `admin`. Denying a `pending`
+  User is `disable_user`.
 """
 
 from __future__ import annotations
@@ -41,7 +43,15 @@ from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
 from woodglue.apps.ui_process import UiProcesses, UiState
 from woodglue.apps.uis import CONSOLE, ui_path
-from woodglue.auth_store import AuthStore, IssuedToken, TokenInfo, UnknownUser, User
+from woodglue.auth_store import (
+    AuthStore,
+    IssuedToken,
+    TokenInfo,
+    UnknownUser,
+    User,
+    UserDisabled,
+    UserPending,
+)
 from woodglue.config import NamespaceEntry, UiEntry
 from woodglue.engine import EngineRegistry, NamespaceEngine
 
@@ -383,6 +393,8 @@ def build_system_namespace(
         """
         caller = _require_user_caller()
         assert caller.user_id is not None
+        if caller.pending:
+            raise RpcError(INVALID_PARAMS, "Users pending approval cannot create tokens")
         if not caller.may_issue_credentials:
             raise RpcError(INVALID_PARAMS, "Narrowed and Delegated Tokens cannot create tokens")
         expires_at = (
@@ -390,7 +402,7 @@ def build_system_namespace(
         )
         try:
             return _store().create_token(caller.user_id, name, expires_at=expires_at, grants=grants)
-        except ValueError as exc:
+        except (ValueError, UserPending, UserDisabled) as exc:
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def list_tokens(user: str | None = None) -> list[TokenInfo]:
@@ -443,8 +455,19 @@ def build_system_namespace(
         except ValueError as exc:
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
+    def approve_user(user: str, roles: list[str] | None = None) -> None:
+        """
+        Approve a `pending` User, making it `active` with its synced Roles plus
+        `roles`. Fails if the User is not pending.
+        """
+        check(Action.admin)
+        try:
+            _store().approve_user(_find_user(user).id, roles or ())
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
+
     def disable_user(user: str) -> None:
-        """Disable a User and revoke all of its credentials."""
+        """Disable a User and revoke all of its credentials. This also denies a `pending` User."""
         check(Action.admin)
         try:
             _store().set_disabled(_find_user(user).id, True)
@@ -452,9 +475,15 @@ def build_system_namespace(
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def enable_user(user: str) -> None:
-        """Re-enable a disabled User. Its revoked credentials stay revoked."""
+        """
+        Re-enable a disabled User, making it `active`. Its revoked credentials
+        stay revoked. A `pending` User must be approved instead.
+        """
         check(Action.admin)
-        _store().set_disabled(_find_user(user).id, False)
+        try:
+            _store().set_disabled(_find_user(user).id, False)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def delete_user(user: str) -> None:
         """
@@ -489,6 +518,7 @@ def build_system_namespace(
         (describe_initiators, "describe_initiators"),
         (list_users, "list_users"),
         (create_service_user, "create_service_user"),
+        (approve_user, "approve_user"),
         (disable_user, "disable_user"),
         (enable_user, "enable_user"),
         (delete_user, "delete_user"),

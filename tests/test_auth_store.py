@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
 from woodglue.access import Action, resolve_roles
-from woodglue.auth_store import ADMIN_USER_ID, AuthStore, UnknownUser, UserDisabled
+from woodglue.auth_store import (
+    ADMIN_USER_ID,
+    AuthStore,
+    UnknownUser,
+    User,
+    UserDisabled,
+    UserPending,
+    UserStatus,
+)
 
 ROLES = resolve_roles(
     {"operator": ["call reports", "call billing", "read *"], "viewer": ["read *"]}
@@ -33,6 +43,79 @@ def test_legacy_tokens_become_admin_tokens(tmp_path: Path) -> None:
     assert caller.user_id == "admin"
     assert caller.can(Action.admin) and caller.can(Action.trigger, "anything")
     assert store.admin_tokens() == ["old-secret"]
+
+
+# An `auth.db` at schema version 1, as written before User status existed.
+_V1_SCHEMA = dedent("""
+    CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE,
+        kind TEXT NOT NULL,
+        disabled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE role_assignments (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        source TEXT NOT NULL,
+        PRIMARY KEY (user_id, role, source)
+    );
+    CREATE TABLE linked_identities (
+        provider TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (provider, subject)
+    );
+    CREATE TABLE credentials (
+        id TEXT PRIMARY KEY,
+        secret TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        grants TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT,
+        last_used_at TEXT,
+        parent_id TEXT REFERENCES credentials(id) ON DELETE CASCADE
+    );
+    INSERT INTO users VALUES ('admin', 'admin', NULL, 'service', 0, '2026-01-01T00:00:00+00:00');
+    INSERT INTO users VALUES ('usr_ann', 'Ann', 'ann@x.com', 'person', 0, '2026-01-02T00:00:00+00:00');
+    INSERT INTO users VALUES ('usr_eve', 'Eve', 'eve@x.com', 'person', 1, '2026-01-03T00:00:00+00:00');
+    INSERT INTO users VALUES ('svc_ci', 'ci', NULL, 'service', 1, '2026-01-04T00:00:00+00:00');
+    INSERT INTO role_assignments VALUES ('admin', 'admin', 'manual');
+    INSERT INTO role_assignments VALUES ('usr_ann', 'viewer', 'provider:okta');
+    INSERT INTO linked_identities VALUES ('okta', 'sub-ann', 'usr_ann', '2026-01-02T00:00:00+00:00');
+    INSERT INTO credentials (id, secret, kind, user_id, name, created_at)
+        VALUES ('tok_ann', 'ann-secret', 'token', 'usr_ann', 'laptop', '2026-01-02T00:00:00+00:00');
+    PRAGMA user_version = 1;
+    """)
+
+
+def test_version_1_db_migrates_disabled_to_status(tmp_path: Path) -> None:
+    with closing(sqlite3.connect(tmp_path / "auth.db")) as conn:
+        conn.executescript(_V1_SCHEMA)
+    store = _store(tmp_path)
+    statuses = {u.id: u.status for u in store.list_users()}
+    assert statuses == {
+        "admin": UserStatus.active,
+        "usr_ann": UserStatus.active,
+        "usr_eve": UserStatus.disabled,
+        "svc_ci": UserStatus.disabled,
+    }
+    caller = store.resolve("ann-secret")
+    assert caller is not None and caller.can(Action.read, "anything")
+    ann = store.sign_in_person(
+        "okta", "sub-ann", email="ann@x.com", email_verified=True, name="Ann", role_sources={}
+    )
+    assert ann.id == "usr_ann"
+    with pytest.raises(UserDisabled):
+        store.sign_in_person(
+            "okta", "sub-eve", email="eve@x.com", email_verified=True, name="Eve", role_sources={}
+        )
+    # Reopening must not run the migration again.
+    assert {u.id: u.status for u in _store(tmp_path).list_users()} == statuses
 
 
 def test_ensure_and_rotate_admin_token(tmp_path: Path) -> None:
@@ -393,3 +476,121 @@ def test_only_sessions_can_be_delegated(tmp_path: Path) -> None:
         store.delegate(token, "ui")
     with pytest.raises(ValueError):
         store.delegate("nonsense", "ui")
+
+
+def _sign_in(
+    store: AuthStore,
+    provider: str = "okta",
+    subject: str = "sub-1",
+    *,
+    roles: list[str] | None = None,
+    admit_as: UserStatus = UserStatus.active,
+) -> User:
+    return store.sign_in_person(
+        provider,
+        subject,
+        email="ann@x.com",
+        email_verified=True,
+        name="Ann",
+        role_sources={f"provider:{provider}": roles or []},
+        admit_as=admit_as,
+    )
+
+
+def test_admit_as_pending_applies_only_when_a_sign_in_creates_the_user(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    assert _sign_in(store, subject="a").status == UserStatus.active
+    store.delete_user(store.find_user("ann@x.com").id)
+
+    ann = _sign_in(store, admit_as=UserStatus.pending)
+    assert ann.status == UserStatus.pending
+    # Signing in again or through a second provider keeps the status, whatever its `admit_as`.
+    assert _sign_in(store, "github", "42", admit_as=UserStatus.active).status == "pending"
+    store.approve_user(ann.id)
+    assert _sign_in(store, admit_as=UserStatus.pending).status == UserStatus.active
+    assert _sign_in(store, "gitlab", "9", admit_as=UserStatus.pending).id == ann.id
+    assert store.find_user(ann.id).status == UserStatus.active
+
+
+def test_each_new_pending_user_is_logged_without_email(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = _store(tmp_path)
+    with caplog.at_level(logging.INFO, logger="woodglue.auth_store"):
+        ann = _sign_in(store, admit_as=UserStatus.pending)
+        _sign_in(store, admit_as=UserStatus.pending)
+        _sign_in(store, subject="other", admit_as=UserStatus.active)
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages == [f"New pending User {ann.id} via okta"]
+
+
+def test_approve_makes_a_pending_user_active_with_manual_roles(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = _sign_in(store, roles=["viewer"], admit_as=UserStatus.pending)
+    with pytest.raises(ValueError, match="Unknown Role"):
+        store.approve_user(ann.id, ["nope"])
+    assert store.find_user(ann.id).status == UserStatus.pending
+    store.approve_user(ann.id, ["operator"])
+    assert store.find_user(ann.id).status == UserStatus.active
+    # The manual Role survives the next sign-in's resync.
+    assert _sign_in(store, roles=[]).roles == ["operator"]
+
+
+def test_approving_a_user_who_is_not_pending_fails(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = _sign_in(store, admit_as=UserStatus.pending)
+    store.approve_user(ann.id)
+    with pytest.raises(ValueError, match="is active, not pending"):
+        store.approve_user(ann.id)
+    store.set_disabled(ann.id, True)
+    with pytest.raises(ValueError, match="is disabled, not pending"):
+        store.approve_user(ann.id)
+    with pytest.raises(UnknownUser):
+        store.approve_user("usr_nobody")
+
+
+def test_deny_is_disable_and_enable_never_yields_pending(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = _sign_in(store, admit_as=UserStatus.pending)
+    with pytest.raises(ValueError, match="pending"):
+        store.set_disabled(ann.id, False)
+    assert store.find_user(ann.id).status == UserStatus.pending
+    store.set_disabled(ann.id, True)
+    assert store.find_user(ann.id).status == UserStatus.disabled
+    store.set_disabled(ann.id, False)
+    assert store.find_user(ann.id).status == UserStatus.active
+
+
+def test_pending_user_has_no_grants_until_approved(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = _sign_in(store, roles=["operator"], admit_as=UserStatus.pending)
+    session = store.create_session(ann.id)
+    delegated = store.delegate(session, "ui")
+    for secret in (session, delegated):
+        caller = store.resolve(secret)
+        assert caller is not None and caller.user_id == ann.id
+        assert not caller.can(Action.read, "reports")
+    pending = store.resolve(session)
+    assert pending is not None and not pending.may_issue_credentials
+
+    store.approve_user(ann.id)
+    for secret in (session, delegated):
+        caller = store.resolve(secret)
+        assert caller is not None and caller.can(Action.call, "reports")
+    active = store.resolve(session)
+    assert active is not None and active.may_issue_credentials
+
+
+def test_pending_and_disabled_users_get_no_tokens(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    ann = _sign_in(store, admit_as=UserStatus.pending)
+    with pytest.raises(UserPending):
+        store.create_token(ann.id, "laptop")
+    ci = store.create_service_user("ci")
+    store.set_disabled(ci.id, True)
+    with pytest.raises(UserDisabled):
+        store.create_token(ci.id, "deploy")
+    # Re-enabling must not revive a token that should never have been issued.
+    store.set_disabled(ci.id, False)
+    assert store.list_tokens(ci.id) == []
+    assert store.list_tokens(ann.id) == []

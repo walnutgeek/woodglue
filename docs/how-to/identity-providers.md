@@ -110,6 +110,29 @@ from then on.
 sign-in: removing someone from `woodglue-operators` in Okta removes `operator`
 at their next sign-in. Roles given with `wgl user assign` are kept.
 
+## Reviewing sign-ups
+
+`admit_as: pending` makes each person the provider admits for the first time
+wait for an admin's approval. Until approved they are signed in with no
+Grants; their `default_roles` and `group_roles` are recorded and apply as soon
+as an admin approves them:
+
+```yaml
+    - id: github
+      kind: github
+      client_id: ${GITHUB_CLIENT_ID}
+      client_secret: ${GITHUB_CLIENT_SECRET}
+      admit: {anyone: true}
+      admit_as: pending                  # default: active
+      default_roles: [viewer]
+```
+
+People in `auth.admins` are created `active` regardless. `admit_as` only
+applies when a sign-in creates the User: someone already known keeps their
+status when they sign in again or through another provider. Approve with
+`wgl user approve <user>` or `system.approve_user`; deny with `disable`. See
+[Approving new people](access-control.md#approving-new-people).
+
 ## One person, several providers
 
 A User found by a provider is linked to it. When someone signs in through a

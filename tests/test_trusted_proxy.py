@@ -187,6 +187,41 @@ class TestTrustedProxyHeader(ProxyTestCase):
         assert session is not None
 
 
+class TestTrustedProxyAdmitAsPending(ProxyTestCase):
+    @override
+    def get_app(self) -> tornado.web.Application:
+        app = super().get_app()
+        for proxy in app.settings["trusted_proxies"]:
+            proxy.config.admit_as = "pending"
+        app.settings["config"].auth.admins = ["boss@x.com"]
+        return app
+
+    def test_new_users_are_pending_but_admins_are_active(self) -> None:
+        data, session = self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt()})
+        assert data["result"]["roles"] == ["viewer"] and session is not None
+        self.whoami({"X-Forwarded-Email": "cat@x.com"})
+        self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt(sub="cf-b", email="boss@x.com")})
+        statuses = {u.email: u.status for u in self.store.list_users()}
+        assert statuses == {
+            None: "active",
+            "ann@x.com": "pending",
+            "cat@x.com": "pending",
+            "boss@x.com": "active",
+        }
+
+    def test_sign_in_logs_hold_no_email(self) -> None:
+        with self.assertLogs(level="INFO") as logs:
+            self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt()})
+            self.whoami({"Cf-Access-Jwt-Assertion": _cf_jwt(sub="cf-e", email="eve@other.org")})
+            # A header proxy's subject is the email itself.
+            self.whoami({"X-Forwarded-Email": "dan@other.org"})
+        messages = [r.getMessage() for r in logs.records]
+        assert not [m for m in messages if "@" in m]
+        ann = self.store.find_user("ann@x.com").id
+        assert f"New pending User {ann} via cf" in messages
+        assert f"Signed in {ann} through proxy cf" in messages
+
+
 class TestUntrustedSource(ProxyTestCase):
     trusted_sources: list[str] = ["10.0.0.0/8"]
 

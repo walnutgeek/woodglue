@@ -12,6 +12,12 @@ A person or service known to a woodglue server, held in its own records. Tokens,
 roles, and revocation attach to the User, not to any outside login.
 _Avoid_: account, principal
 
+**User status**:
+Whether a User may act: `pending` (signed in, awaiting an admin's approval, no
+Grants), `active`, or `disabled` (refused everywhere, record kept). Only a person
+can be pending. Denying a pending User is disabling it.
+_Avoid_: approved, denied, blocked, suspended (as statuses)
+
 **Identity Provider**:
 An outside system that vouches for who someone is, such as Google, GitHub, Entra ID,
 Auth0, Okta, or a trusted reverse proxy in front of woodglue.

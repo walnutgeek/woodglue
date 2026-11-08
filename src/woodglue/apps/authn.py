@@ -34,7 +34,13 @@ import tornado.httputil
 import tornado.web
 
 from woodglue.access import ANONYMOUS, Caller
-from woodglue.apps.identity_providers import SignInError, TrustedProxy, admits, role_sources
+from woodglue.apps.identity_providers import (
+    SignInError,
+    TrustedProxy,
+    admit_status,
+    admits,
+    role_sources,
+)
 from woodglue.auth_store import AuthStore, UserDisabled
 
 logger = logging.getLogger(__name__)
@@ -105,7 +111,8 @@ def _proxy_authentication(
             ):
                 return Authentication(caller, AuthVia.cookie, secret)
         if not admits(proxy.config.admit, who):
-            logger.info("Proxy sign-in refused for %s (%s)", who.subject, who.email)
+            # Not the subject: a header proxy's subject is the person's email.
+            logger.info("Proxy sign-in through %s refused by its admit rules", who.provider)
             return Authentication(None, AuthVia.cookie)
         admins: list[str] = settings["config"].auth.admins
         try:
@@ -116,6 +123,7 @@ def _proxy_authentication(
                 email_verified=who.email_verified,
                 name=who.name,
                 role_sources=role_sources(proxy.config, who, admins),
+                admit_as=admit_status(proxy.config, who, admins),
             )
         except UserDisabled:
             return Authentication(None, AuthVia.cookie)
@@ -123,7 +131,7 @@ def _proxy_authentication(
         origin = f"proxy:{who.provider}"
         secret = store.live_session(user.id, origin) or store.create_session(user.id, origin)
         set_session_cookie(handler, secret)
-        logger.info("Signed in %s (%s) through proxy %s", user.id, user.email, who.provider)
+        logger.info("Signed in %s through proxy %s", user.id, who.provider)
         return Authentication(store.resolve(secret), AuthVia.cookie, secret)
     return None
 

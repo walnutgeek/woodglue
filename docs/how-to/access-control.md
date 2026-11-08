@@ -40,7 +40,8 @@ needed Grant answers `-32003 Forbidden`.
 - **People** are created when they first sign in through an Identity
   Provider, which can also give them Roles (`default_roles`, `group_roles`)
   and re-applies those at every sign-in. Emails listed in `auth.admins` get
-  `admin`. See [Identity Providers](identity-providers.md).
+  `admin`. A provider with `admit_as: pending` creates them `pending`
+  instead (see below). See [Identity Providers](identity-providers.md).
 - **Service Users** are for daemons and CI. They have no sign-in, only
   Personal Access Tokens.
 - **`admin`** is a built-in Service User; `wgl token` prints its tokens.
@@ -48,14 +49,41 @@ needed Grant answers `-32003 Forbidden`.
 ```bash
 wgl user add ci                 # create a Service User
 wgl user assign ci reporter     # give a Role (also: unassign)
-wgl user list                   # Users, kinds, Roles, state
+wgl user list                   # Users, kinds, statuses, Roles
 wgl user disable ci             # also revokes all its credentials (enable undoes the disable)
 wgl user delete ci              # erases the User and revokes all its credentials
 ```
 
 A `<user>` is a User id, email, or unique name. Admins can do the same over
-the API with `system.list_users`, `create_service_user`, `assign_role`,
-`unassign_role`, `disable_user`, `enable_user`, and `delete_user`.
+the API with `system.list_users`, `create_service_user`, `approve_user`,
+`assign_role`, `unassign_role`, `disable_user`, `enable_user`, and
+`delete_user`.
+
+### Approving new people
+
+Every User has a status: `pending`, `active`, or `disabled`. With
+`admit_as: pending` on a provider, a person that provider admits for the first
+time is created `pending`. They are signed in and their provider Roles are
+recorded, but they hold no Grants, so every namespace, UI, and doc page is
+closed to them, and they cannot create Personal Access Tokens. `system.whoami`
+and signing out still work. People listed in `auth.admins` are always created
+`active`, so the first admin of a fresh deployment is never left waiting.
+
+Each new pending User is logged at INFO as `New pending User usr_… via <provider>`.
+
+```bash
+wgl user list                            # shows each User's status
+wgl user approve pat@example.com         # pending -> active, with the provider's Roles
+wgl user approve pat@example.com --role=operator,viewer   # and these Roles too
+wgl user disable pat@example.com         # deny: the record is kept, so they stay refused
+```
+
+Approval takes effect on their next request, with no new sign-in. Approving
+someone who is not `pending` fails, so acting on a stale list does not
+silently do nothing. `enable` turns a disabled User `active`, never back into
+`pending`; a pending User is approved, not enabled. The status applies only
+when a sign-in creates the User: an existing User keeps it when signing in
+through another provider.
 
 `disable` keeps the record, so the person stays refused. `delete` is for erasure
 on request: it removes the User's name, email, Role assignments, Linked
@@ -70,7 +98,8 @@ their next request, so remove them at the proxy as well.
 
 Run history is not touched: `initiated_by` and `changed_by` keep the deleted
 User's id, which the Console then shows in place of a name. Server logs keep
-anything already written, including the email at each sign-in.
+anything already written. Sign-in log lines name the User by id only, but logs
+from versions before User status included the email at each sign-in.
 
 ## Personal Access Tokens
 
@@ -89,7 +118,8 @@ Signed-in people manage their own tokens on the Console's Tokens page, or with
 `wgl login --server=URL` gets one through the browser.
 
 A narrowed token cannot create tokens or start a browser Session, so it cannot
-mint anything broader than itself.
+mint anything broader than itself. Pending and disabled Users get no tokens by
+any route, including a `wgl login` approved just before the status changed.
 
 ## UIs
 
