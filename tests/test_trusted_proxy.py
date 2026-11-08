@@ -210,13 +210,17 @@ class TestTrustedProxyAdmitAsPending(ProxyTestCase):
         }
 
     def test_pending_user_added_to_admins_is_promoted_at_next_sign_in(self) -> None:
-        self.whoami({"X-Forwarded-Email": "cat@x.com"})
+        _, session = self.whoami({"X-Forwarded-Email": "cat@x.com"})
+        assert session is not None
         assert self.store.find_user("cat@x.com").status == "pending"
         self._app.settings["config"].auth.admins.append("cat@x.com")
-        # Without a Session cookie, each request signs in again.
-        data, _ = self.whoami({"X-Forwarded-Email": "cat@x.com"})
+        # The browser still holds the pending User's live Session.
+        data, _ = self.whoami(
+            {"X-Forwarded-Email": "cat@x.com", "Cookie": f"wgl_session={session}"}
+        )
         assert self.store.find_user("cat@x.com").status == "active"
         assert "admin" in data["result"]["roles"]
+        assert self.store.resolve(session) is not None
 
     def test_sign_in_logs_hold_no_email(self) -> None:
         with self.assertLogs(level="INFO") as logs:

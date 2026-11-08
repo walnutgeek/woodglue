@@ -34,7 +34,7 @@ import tornado.httputil
 import tornado.web
 
 from woodglue.access import ANONYMOUS, Caller
-from woodglue.apps.identity_providers import SignInError, TrustedProxy, admits, sign_in
+from woodglue.apps.identity_providers import SignInError, TrustedProxy, admits, is_admin, sign_in
 from woodglue.auth_store import AuthStore, UserDisabled
 
 logger = logging.getLogger(__name__)
@@ -97,18 +97,21 @@ def _proxy_authentication(
             return Authentication(None, AuthVia.cookie)
         if who is None:
             continue
+        admins: list[str] = settings["config"].auth.admins
         secret = handler.get_cookie(SESSION_COOKIE)
         if secret:
             caller = store.resolve(secret)
-            if caller is not None and caller.user_id == store.linked_user(
-                who.provider, who.subject
+            # A pending User now in `auth.admins` signs in again, which makes them active.
+            if (
+                caller is not None
+                and caller.user_id == store.linked_user(who.provider, who.subject)
+                and not (caller.pending and is_admin(who, admins))
             ):
                 return Authentication(caller, AuthVia.cookie, secret)
         if not admits(proxy.config.admit, who):
             # Not the subject: a header proxy's subject is the person's email.
             logger.info("Proxy sign-in through %s refused by its admit rules", who.provider)
             return Authentication(None, AuthVia.cookie)
-        admins: list[str] = settings["config"].auth.admins
         try:
             user = sign_in(store, proxy.config, who, admins)
         except UserDisabled:
