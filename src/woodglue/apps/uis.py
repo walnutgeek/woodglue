@@ -157,16 +157,23 @@ def require_view(handler: tornado.web.RequestHandler, ui_name: str) -> Authentic
         handler.redirect(f"/auth/login?next={quote(handler.request.uri or '/', safe='')}")
         return None
     if not auth.caller.can(Action.view, f"ui:{ui_name}"):
-        handler.set_status(403)
-        # A User with some Grants has access and opened the wrong UI; one signed
-        # in with none (e.g. just signed up) needs to know to ask an admin.
-        if auth.caller.has_grants or auth.via != AuthVia.cookie:
-            handler.finish(f"Forbidden: requires 'view' on 'ui:{ui_name}'")
-        else:
-            handler.set_header("Content-Type", "text/html; charset=UTF-8")
-            handler.finish(_no_grants_page(auth.caller))
+        _forbid_view(handler, auth.caller, auth.via, ui_name)
         return None
     return auth
+
+
+def _forbid_view(
+    handler: tornado.web.RequestHandler, caller: Caller, via: AuthVia, ui_name: str
+) -> None:
+    """Finish the request with 403 for a Caller lacking `view` on `ui_name`."""
+    handler.set_status(403)
+    # A User with some Grants has access and opened the wrong UI; one signed
+    # in with none (e.g. just signed up) needs to know to ask an admin.
+    if caller.has_grants or via != AuthVia.cookie:
+        handler.finish(f"Forbidden: requires 'view' on 'ui:{ui_name}'")
+    else:
+        handler.set_header("Content-Type", "text/html; charset=UTF-8")
+        handler.finish(_no_grants_page(caller))
 
 
 class UiStaticHandler(tornado.web.StaticFileHandler):
@@ -216,7 +223,8 @@ class VerifyHandler(tornado.web.RequestHandler):
 
     Answers 200 with the identity headers for an allowed request, a redirect to
     the login page (returning to the original URI) without a Session, 403
-    without the `view` Grant, and 400 if no UI can be named.
+    without the `view` Grant (the same page or message as `require_view`; the
+    proxy shows it to the browser), and 400 if no UI can be named.
     """
 
     @override
@@ -237,7 +245,8 @@ class VerifyHandler(tornado.web.RequestHandler):
             and auth.caller is not None
             and not auth.caller.can(Action.view, f"ui:{name}")
         ):
-            raise tornado.web.HTTPError(403)
+            _forbid_view(self, auth.caller, auth.via, name)
+            return
         grants = entry.grants if entry is not None else None
         for header, value in identity_headers(
             auth, settings.get("auth_store"), name, grants

@@ -82,9 +82,22 @@ class TestVerify(tornado.testing.AsyncHTTPTestCase):
         assert json.loads(resp.headers["X-Woodglue-User"])["name"] == "reports-viewer"
         assert resp.headers["X-Woodglue-Token"]
 
+    def test_user_without_grants_gets_the_no_grants_page(self) -> None:
+        # Caddy's forward_auth copies a non-2xx response back to the browser.
+        resp = self.verify("/ui/reports/", "nobody")
+        assert resp.code == 403
+        assert resp.headers["Content-Type"].startswith("text/html")
+        body = resp.body.decode()
+        assert "no access yet" in body and "nobody" in body
+        assert 'action="/auth/logout"' in body
+
+    def test_user_with_other_grants_gets_the_bare_403(self) -> None:
+        resp = self.verify("/anything", "reports-viewer", "?ui=grafana")
+        assert resp.code == 403
+        assert resp.body == b"Forbidden: requires 'view' on 'ui:grafana'"
+
     def test_ui_can_be_named_explicitly(self) -> None:
         assert self.verify("/anything", "reports-viewer", "?ui=reports").code == 200
-        assert self.verify("/anything", "reports-viewer", "?ui=grafana").code == 403
 
     def test_public_ui_passes_without_session(self) -> None:
         assert self.verify("/ui/status/index.html").code == 200

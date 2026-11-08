@@ -20,7 +20,8 @@ The generated site:
   `package:` references, which reach woodglue like the rest. Before each request,
   `forward_auth` asks woodglue's `/auth/verify` whether the viewer may open the
   UI, so a visitor without a Session is sent to the login page and back, and
-  one without `view` on `ui:<name>` gets 403;
+  one without `view` on `ui:<name>` gets 403 (a signed-in User with no
+  Grants at all sees a page saying there is no access yet, with Sign out);
 - sends everything else to woodglue: `/rpc`, `/docs`, `/auth`, the Console,
   package Static UIs, and Process-backed UIs such as Streamlit. woodglue runs those processes on
   ports it picks at start, and keeps their Session handling (cookie stripping,
