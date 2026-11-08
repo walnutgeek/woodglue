@@ -56,9 +56,26 @@ wgl user delete ci              # erases the User and revokes all its credential
 ```
 
 A `<user>` is a User id, email, or unique name. Admins can do the same over
-the API with `system.list_users`, `create_service_user`, `approve_user`,
-`assign_role`, `unassign_role`, `disable_user`, `enable_user`, and
-`delete_user`.
+the API with `system.list_users`, `list_roles`, `create_service_user`,
+`approve_user`, `assign_role`, `unassign_role`, `disable_user`, `enable_user`,
+and `delete_user`.
+
+### The Console's Users page
+
+Anyone holding the `admin` Grant, through the built-in `admin` Role or a Role
+of your own, sees a Users link next to Tokens in the Console. The page lists
+every User with their status, Roles, and the Identity Providers they are linked
+to, and opens on `pending` Users when someone is waiting. From it an admin can
+approve (choosing extra Roles, each shown with its Grants), deny, disable,
+enable, and delete Users, and assign or unassign Roles. Deleting asks for
+confirmation on the page. A refused action, such as approving someone another
+admin already approved, shows the server's message and refreshes the list.
+
+Roles are marked `manual` (assigned by an admin) or `synced` (set at sign-in
+by an Identity Provider or `auth.admins`). Synced Roles cannot be removed on
+the page, since the next sign-in would add them back: change the provider's
+`default_roles` or `group_roles` instead. Creating Service Users and managing
+other Users' tokens stay with `wgl user`.
 
 ### Approving new people
 

@@ -123,6 +123,7 @@ def test_build_system_namespace_has_all_methods() -> None:
         "revoke_token",
         "describe_initiators",
         "list_users",
+        "list_roles",
         "create_service_user",
         "approve_user",
         "disable_user",

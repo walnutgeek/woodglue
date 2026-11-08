@@ -17,6 +17,11 @@ Deleting erases a User, with its Role assignments, Linked Identities, and
 credentials; if the person signs in again they become a new User. Run history
 outside `auth.db` keeps the deleted User's id.
 
+Each Role assignment has a source: `manual` for one an admin made, or the
+sign-in source that set it (`provider:<id>`, `admins`), which the next sign-in
+through it replaces. `unassign_role` removes a Role from every source, so a
+synced Role comes back at that User's next sign-in.
+
 Role definitions are not stored here: they come from `woodglue.yaml` (see
 `woodglue.access`). A Role assignment naming a Role that is no longer defined
 grants nothing.
@@ -90,6 +95,17 @@ class CredentialKind(StrEnum):
     delegated = "delegated"
 
 
+class RoleAssignment(BaseModel):
+    """
+    One Role given to a User by one source: `manual` for an admin, otherwise a
+    sign-in source such as `provider:<id>` or `admins`, which the next sign-in
+    through it sets again.
+    """
+
+    role: str
+    source: str
+
+
 class User(BaseModel):
     id: str
     name: str
@@ -97,6 +113,10 @@ class User(BaseModel):
     kind: UserKind
     status: UserStatus = UserStatus.active
     roles: list[str] = []
+    """Distinct Roles from all of `role_assignments`."""
+    role_assignments: list[RoleAssignment] = []
+    providers: list[str] = []
+    """Identity Providers of the User's Linked Identities."""
     created_at: datetime
 
 
@@ -269,10 +289,18 @@ class AuthStore:
     # Users
 
     def _user_from_row(self, conn: sqlite3.Connection, row: sqlite3.Row) -> User:
-        roles = [
-            r["role"]
+        assignments = [
+            RoleAssignment(role=r["role"], source=r["source"])
             for r in conn.execute(
-                "SELECT DISTINCT role FROM role_assignments WHERE user_id = ? ORDER BY role",
+                "SELECT role, source FROM role_assignments WHERE user_id = ? ORDER BY role, source",
+                (row["id"],),
+            )
+        ]
+        providers = [
+            r["provider"]
+            for r in conn.execute(
+                "SELECT DISTINCT provider FROM linked_identities WHERE user_id = ? "
+                + "ORDER BY provider",
                 (row["id"],),
             )
         ]
@@ -282,7 +310,9 @@ class AuthStore:
             email=row["email"],
             kind=UserKind(row["kind"]),
             status=UserStatus(row["status"]),
-            roles=roles,
+            roles=sorted({a.role for a in assignments}),
+            role_assignments=assignments,
+            providers=providers,
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 

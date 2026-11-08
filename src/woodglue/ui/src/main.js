@@ -47,7 +47,7 @@ async function authFetch(url) {
 // ============================================================
 
 const state = {
-  view: "home",       // home | namespace | run | method | tokens
+  view: "home",       // home | namespace | run | method | tokens | users
   me: null,           // system.whoami result
   uis: [],            // project UIs from system.list_uis, without the Console
   initiators: {},     // initiated_by value -> display name, from system.describe_initiators
@@ -62,6 +62,11 @@ const state = {
   triggers: [],       // triggers for selectedNs
   tokens: [],         // the signed-in User's Personal Access Tokens
   issuedToken: null,  // { name, secret } of a token just created, shown once
+  users: [],          // system.list_users, for admins
+  roles: [],          // system.list_roles: [{ name, grants }]
+  userFilter: "all",  // all | pending | active | disabled
+  userPanel: null,    // { userId, kind: "approve" | "delete" } of the open inline form
+  userError: null,    // message of the last refused User action
 };
 
 // ============================================================
@@ -230,8 +235,8 @@ function renderBreadcrumb() {
   const bc = document.getElementById("breadcrumb");
   const crumbs = [{ label: "woodglue", view: "home" }];
 
-  if (state.view === "tokens") {
-    crumbs.push({ label: "tokens", view: "tokens", current: true });
+  if (state.view === "tokens" || state.view === "users") {
+    crumbs.push({ label: state.view, view: state.view, current: true });
   } else if (state.view !== "home") {
     crumbs.push({ label: state.selectedNs || state.selectedMethod?.split(".")[0], view: "namespace" });
   }
@@ -281,6 +286,9 @@ function renderView() {
       break;
     case "tokens":
       renderTokens(view);
+      break;
+    case "users":
+      renderUsers(view);
       break;
     default:
       renderHome(view);
@@ -897,6 +905,7 @@ function renderAccountSection() {
       <div class="account-roles">${escapeHtml(me.roles.join(", ") || "no roles")}</div>
       <div class="account-actions">
         <button class="link-btn" id="nav-tokens">Tokens</button>
+        ${me.admin ? '<button class="link-btn" id="nav-users">Users</button>' : ""}
         <form method="post" action="/auth/logout">
           <button class="link-btn" type="submit">Sign out</button>
         </form>
@@ -910,6 +919,21 @@ function bindAccountSection(nav) {
     tokensBtn.addEventListener("click", async () => {
       await loadTokens();
       navigate("tokens", { selectedNs: null, selectedRun: null });
+    });
+  }
+  const usersBtn = nav.querySelector("#nav-users");
+  if (usersBtn) {
+    usersBtn.addEventListener("click", async () => {
+      state.userError = null;
+      try {
+        await loadUsers();
+        state.roles = (await rpcCall("system.list_roles")) || [];
+      } catch (err) {
+        state.userError = err.message;
+      }
+      state.userFilter = state.users.some((u) => u.status === "pending") ? "pending" : "all";
+      state.userPanel = null;
+      navigate("users", { selectedNs: null, selectedRun: null });
     });
   }
 }
@@ -987,6 +1011,193 @@ function renderTokens(el) {
 }
 
 // ============================================================
+// Users (admin)
+// ============================================================
+
+async function loadUsers() {
+  state.users = (await rpcCall("system.list_users")) || [];
+}
+
+// Runs one User action, then reloads the list so the row shows the server's state.
+async function userAction(user, label, method, params = {}) {
+  state.userError = null;
+  try {
+    await rpcCall(method, { user: user.id, ...params });
+    state.userPanel = null;
+  } catch (err) {
+    state.userError = `${label} ${user.name}: ${err.message}`;
+  }
+  try {
+    await loadUsers();
+  } catch (err) {
+    state.userError = state.userError || err.message;
+  }
+  renderView();
+}
+
+function roleGrants(name) {
+  const role = state.roles.find((r) => r.name === name);
+  return role ? role.grants.join(", ") : "not defined";
+}
+
+// One chip per Role. A synced Role has no remove control: the next sign-in would add it back.
+function renderUserRoles(user) {
+  const sources = {};
+  for (const a of user.role_assignments) (sources[a.role] ||= []).push(a.source);
+  const chips = Object.entries(sources).map(([role, from]) => {
+    const synced = from.filter((s) => s !== "manual");
+    const how = synced.length ? "synced" : "manual";
+    const title = synced.length
+      ? `Synced from ${synced.join(", ")}; the next sign-in would add it back. Grants: ${roleGrants(role)}`
+      : `Assigned by an admin. Grants: ${roleGrants(role)}`;
+    const remove = synced.length
+      ? ""
+      : `<button class="chip-remove" data-unassign="${escapeHtml(role)}" title="Unassign ${escapeHtml(role)}">&times;</button>`;
+    return `<span class="role-chip ${how}" title="${escapeHtml(title)}">${escapeHtml(role)} <span class="role-how">${how}</span>${remove}</span>`;
+  });
+  return chips.join("") || '<span class="muted">none</span>';
+}
+
+function renderUserActions(user) {
+  const btn = (action, label, cls = "") => `<button class="link-btn ${cls}" data-action="${action}">${label}</button>`;
+  const actions = [];
+  if (user.status === "pending") {
+    actions.push(btn("approve", "Approve"), btn("deny", "Deny", "danger"));
+  } else if (user.status === "active") {
+    actions.push(btn("disable", "Disable", "danger"));
+  } else {
+    actions.push(btn("enable", "Enable"));
+  }
+  actions.push(btn("delete", "Delete", "danger"));
+  const assignable = state.roles.filter(
+    (r) => !user.role_assignments.some((a) => a.role === r.name && a.source === "manual")
+  );
+  if (assignable.length) {
+    actions.push(`<select class="assign-select" aria-label="Assign a Role">
+      <option value="">Assign Role...</option>
+      ${assignable.map((r) => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${escapeHtml(r.grants.join(", "))})</option>`).join("")}
+    </select>`);
+  }
+  return actions.join("");
+}
+
+function renderUserPanel(user) {
+  const panel = state.userPanel;
+  if (!panel || panel.userId !== user.id) return "";
+  let body;
+  if (panel.kind === "approve") {
+    const synced = new Set(user.role_assignments.map((a) => a.role));
+    const options = state.roles
+      .map(
+        (r) => `<label class="approve-role">
+          <input type="checkbox" value="${escapeHtml(r.name)}" ${synced.has(r.name) ? "checked disabled" : ""} />
+          <b>${escapeHtml(r.name)}</b> <span class="mono">${escapeHtml(r.grants.join(", "))}</span>
+          ${synced.has(r.name) ? '<span class="muted">already has it</span>' : ""}
+        </label>`
+      )
+      .join("");
+    body = `<div>Approve <b>${escapeHtml(user.name)}</b> with these Roles:</div>
+      <div class="approve-roles">${options}</div>
+      <button class="panel-btn" data-panel="confirm-approve">Approve</button>
+      <button class="link-btn" data-panel="cancel">Cancel</button>`;
+  } else {
+    body = `<div>Delete <b>${escapeHtml(user.name)}</b>? This erases the User with its Role assignments, Linked Identities,
+      and tokens. If the person signs in again they become a new User.</div>
+      <button class="panel-btn danger" data-panel="confirm-delete">Delete</button>
+      <button class="link-btn" data-panel="cancel">Cancel</button>`;
+  }
+  return `<tr class="user-panel-row" data-user-id="${escapeHtml(user.id)}"><td colspan="8"><div class="user-panel">${body}</div></td></tr>`;
+}
+
+function renderUsers(el) {
+  const counts = { all: state.users.length, pending: 0, active: 0, disabled: 0 };
+  for (const u of state.users) counts[u.status] += 1;
+  const shown = state.users.filter((u) => state.userFilter === "all" || u.status === state.userFilter);
+  const rows = shown
+    .map(
+      (u) => `
+      <tr class="user-row" data-user-id="${escapeHtml(u.id)}">
+        <td>${escapeHtml(u.name)}</td>
+        <td>${escapeHtml(u.email || "")}</td>
+        <td>${u.kind}</td>
+        <td><span class="user-status ${u.status}">${u.status}</span></td>
+        <td class="user-roles">${renderUserRoles(u)}</td>
+        <td>${escapeHtml(u.providers.join(", "))}</td>
+        <td>${formatTimeFull(u.created_at)}</td>
+        <td class="user-actions">${renderUserActions(u)}</td>
+      </tr>${renderUserPanel(u)}`
+    )
+    .join("");
+  el.innerHTML = `
+    <div class="home-title">Users</div>
+    <div class="home-subtitle">Synced Roles come from an Identity Provider or <code>auth.admins</code> at sign-in
+      and cannot be removed here: the next sign-in would add them back.</div>
+    ${state.userError ? `<div class="user-error" role="alert">${escapeHtml(state.userError)}</div>` : ""}
+    <div class="runs-filter users-filter">
+      ${["all", "pending", "active", "disabled"]
+        .map((f) => `<button class="filter-btn ${state.userFilter === f ? "active" : ""}" data-filter="${f}">${f} (${counts[f]})</button>`)
+        .join("")}
+    </div>
+    ${
+      shown.length
+        ? `<table class="token-table user-table">
+             <thead><tr><th>Name</th><th>Email</th><th>Kind</th><th>Status</th><th>Roles</th><th>Providers</th><th>Created</th><th></th></tr></thead>
+             <tbody>${rows}</tbody>
+           </table>`
+        : `<div class="empty-state">No ${state.userFilter === "all" ? "" : state.userFilter + " "}Users.</div>`
+    }`;
+
+  el.querySelectorAll(".filter-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      state.userFilter = b.dataset.filter;
+      state.userPanel = null;
+      renderView();
+    });
+  });
+
+  const userOf = (node) => state.users.find((u) => u.id === node.closest("[data-user-id]").dataset.userId);
+  const openPanel = (user, kind) => {
+    state.userPanel = { userId: user.id, kind };
+    renderView();
+  };
+  const actions = {
+    approve: (u) => openPanel(u, "approve"),
+    delete: (u) => openPanel(u, "delete"),
+    deny: (u) => userAction(u, "Deny", "system.disable_user"),
+    disable: (u) => userAction(u, "Disable", "system.disable_user"),
+    enable: (u) => userAction(u, "Enable", "system.enable_user"),
+  };
+  el.querySelectorAll("[data-action]").forEach((b) => {
+    b.addEventListener("click", () => actions[b.dataset.action](userOf(b)));
+  });
+  el.querySelectorAll("[data-unassign]").forEach((b) => {
+    b.addEventListener("click", () =>
+      userAction(userOf(b), `Unassign ${b.dataset.unassign} from`, "system.unassign_role", { role: b.dataset.unassign })
+    );
+  });
+  el.querySelectorAll(".assign-select").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      if (sel.value) userAction(userOf(sel), `Assign ${sel.value} to`, "system.assign_role", { role: sel.value });
+    });
+  });
+  el.querySelectorAll("[data-panel]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const user = userOf(b);
+      if (b.dataset.panel === "cancel") {
+        state.userPanel = null;
+        renderView();
+      } else if (b.dataset.panel === "confirm-delete") {
+        userAction(user, "Delete", "system.delete_user");
+      } else {
+        const panel = b.closest(".user-panel");
+        const roles = [...panel.querySelectorAll("input:checked:not(:disabled)")].map((i) => i.value);
+        userAction(user, "Approve", "system.approve_user", { roles });
+      }
+    });
+  });
+}
+
+// ============================================================
 // Utilities
 // ============================================================
 
@@ -1022,7 +1233,7 @@ function formatJson(str) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 // ============================================================
