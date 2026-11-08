@@ -7,8 +7,8 @@ settings.
 
 Identity Provider secrets may be given as `${NAME}` environment variable
 references. `load_config` expands them unless called with
-`expand_secrets=False`, which the commands that only open `auth.db` use so
-they run without the secrets set.
+`expand_secrets=False`, which every `wgl` command that loads the config uses
+except `wgl start`, so an admin can run them without the secrets set.
 
 Logging for `wgl start` is driven by `storage.log_file`, `storage.log_level`,
 `storage.loggers`, `storage.log_max_bytes`, `storage.log_backup_count`, and
@@ -492,16 +492,15 @@ def load_config(data_dir: Path, *, expand_secrets: bool = True) -> WoodglueConfi
     Load `WoodglueConfig` from `{data_dir}/woodglue.yaml`.
 
     `expand_secrets=False` leaves the provider `${NAME}` references unexpanded,
-    so commands that only open `auth.db` (`wgl user`, `wgl token`) run without
-    the provider secrets in the environment. Such a config must not be used to
-    sign anyone in.
+    for commands that never sign anyone in. Such a config must not reach
+    `create_app` or an Identity Provider client.
 
     Raises `FileNotFoundError` if the file does not exist.
     """
     config_path = data_dir / CONFIG_FILENAME
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
-    # The YAML 1.2 safe loader pydantic_yaml uses, which cannot pass a validation context.
+    # Validated directly: pydantic_yaml's loaders cannot pass a validation context.
     raw = YAML(typ="safe", pure=True).load(config_path)
     return WoodglueConfig.model_validate(raw, context={EXPAND_SECRETS: expand_secrets})
 
