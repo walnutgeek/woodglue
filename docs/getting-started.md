@@ -71,7 +71,8 @@ wgl token --new    # replace it; the running server picks it up immediately
 
 Open `http://127.0.0.1:5321/`. It sends you to the login page; paste the admin
 token. The Console shows the namespaces, runs, and triggers you may see, and a
-Tokens page for your own Personal Access Tokens. To let people sign in with
+Tokens page for your own Personal Access Tokens. Admins also get a Users page
+to approve, disable, and delete Users and assign Roles. To let people sign in with
 their own accounts, configure an Identity Provider: see
 [Identity Providers](how-to/identity-providers.md).
 

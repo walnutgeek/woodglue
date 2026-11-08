@@ -34,7 +34,7 @@ Personal Access Token, Delegated Token, UI) in `GLOSSARY.md`.
 - **Auto-generated docs** — `llms.txt` index, per-method markdown, OpenAPI 3.0.3 spec, each showing only what the caller may use
 - **Users, Roles, and Grants** — per-namespace authorization; Personal Access Tokens that can be narrowed and expire ([how-to](how-to/access-control.md))
 - **Sign-in** — Google, Entra ID, Okta, Auth0, or any OpenID Connect provider; GitHub; or a trusted proxy such as Cloudflare Access, Google IAP, or oauth2-proxy ([how-to](how-to/identity-providers.md))
-- **The Console** — browser-based API browsing, runs and triggers, DAG visualization, and your own tokens
+- **The Console** — browser-based API browsing, runs and triggers, DAG visualization, your own tokens, and for admins a Users page
 - **Project UIs** — host your own single-page app ([how-to](how-to/static-ui.md)) or Streamlit app ([how-to](how-to/streamlit-ui.md)) next to the Console, signed in as the same User
 - **Run attribution** — runs and trigger changes record which User caused them
 - **`wgl login`** — get a token for a remote server through the browser

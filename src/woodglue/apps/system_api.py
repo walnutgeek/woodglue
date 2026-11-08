@@ -22,10 +22,14 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
   `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
   a Session of an `active` User can create tokens (see
   `Caller.may_issue_credentials`).
-- User management (`list_users`, `create_service_user`, `approve_user`,
-  `disable_user`, `enable_user`, `delete_user`, `assign_role`,
+- User management (`list_users`, `list_roles`, `create_service_user`,
+  `approve_user`, `disable_user`, `enable_user`, `delete_user`, `assign_role`,
   `unassign_role`) and other Users' tokens need `admin`. Denying a `pending`
-  User is `disable_user`.
+  User is `disable_user`. `list_users` shows each Role assignment's source
+  (`manual`, or synced at sign-in) and the User's Identity Providers;
+  `whoami().admin` tells a client such as the Console whether to offer them.
+  `builtin` on a User or Role marks the built-in `admin`, which cannot be
+  disabled, deleted, or lose the `admin` Role.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ from lythonic.compose.dag_runner import DagRunResult
 from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 
-from woodglue.access import AccessDenied, Action, Caller, check, current_caller
+from woodglue.access import ADMIN_ROLE, AccessDenied, Action, Caller, check, current_caller
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
 from woodglue.apps.ui_process import UiProcesses, UiState
@@ -97,6 +101,20 @@ class WhoAmI(BaseModel):
     roles: list[str]
     narrowed: bool
     """Whether the request's credential is limited to a subset of the User's Grants."""
+    admin: bool
+    """
+    Whether this request may manage Users. From the `admin` Grant, so a custom
+    Role granting it counts as well as the built-in `admin` Role.
+    """
+
+
+class RoleInfo(BaseModel):
+    """A Role defined in `woodglue.yaml`, or the built-in `admin`, with its Grants."""
+
+    name: str
+    grants: list[str]
+    builtin: bool = False
+    """The built-in `admin` Role, which cannot be redefined."""
 
 
 class UiInfo(BaseModel):
@@ -376,13 +394,14 @@ def build_system_namespace(
         """The Caller of this request: User, Roles, and whether its token is narrowed."""
         caller = current_caller.get()
         if caller is None:
-            return WhoAmI(user_id=None, name="in-process", roles=[], narrowed=False)
+            return WhoAmI(user_id=None, name="in-process", roles=[], narrowed=False, admin=True)
         return WhoAmI(
             user_id=caller.user_id,
             name=caller.name,
             email=caller.email,
             roles=list(caller.roles),
             narrowed=caller.narrowed,
+            admin=caller.can(Action.admin),
         )
 
     def create_token(
@@ -458,6 +477,15 @@ def build_system_namespace(
         check(Action.admin)
         return _store().list_users()
 
+    def list_roles() -> list[RoleInfo]:
+        """Every defined Role, including the built-in `admin`, with its Grants."""
+        check(Action.admin)
+        roles = _store().roles
+        return [
+            RoleInfo(name=n, grants=[str(g) for g in roles[n]], builtin=n == ADMIN_ROLE)
+            for n in sorted(roles)
+        ]
+
     def create_service_user(name: str) -> User:
         """Create a Service User, for daemons and CI."""
         check(Action.admin)
@@ -531,6 +559,7 @@ def build_system_namespace(
         (revoke_token, "revoke_token"),
         (describe_initiators, "describe_initiators"),
         (list_users, "list_users"),
+        (list_roles, "list_roles"),
         (create_service_user, "create_service_user"),
         (approve_user, "approve_user"),
         (disable_user, "disable_user"),

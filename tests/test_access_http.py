@@ -18,7 +18,11 @@ from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.config import AuthConfig, NamespaceEntry, WoodglueConfig, WoodglueStorageConfig
 from woodglue.hello import hello
 
-ROLES = {"operator": ["call reports", "read reports"], "viewer": ["read *"]}
+ROLES = {
+    "operator": ["call reports", "read reports"],
+    "viewer": ["read *"],
+    "steward": ["admin"],
+}
 
 
 def _namespaces() -> dict[str, tuple[Namespace, NamespaceEntry]]:
@@ -41,7 +45,7 @@ class AccessTestCase(tornado.testing.AsyncHTTPTestCase):
         self.store = AuthStore(Path(self._tmp.name) / "auth.db", resolve_roles(ROLES))
         self.store.ensure_admin_token()
         self.tokens = {"admin": self.store.admin_tokens()[0]}
-        for role in ("operator", "viewer"):
+        for role in ("operator", "viewer", "steward"):
             user = self.store.create_service_user(role)
             self.store.assign_role(user.id, role)
             self.tokens[role] = self.store.create_token(user.id, "t").secret
@@ -126,6 +130,13 @@ class TestRpcAccess(AccessTestCase):
         me = self.rpc("operator", "system.whoami")["result"]
         assert me["name"] == "operator" and me["roles"] == ["operator"]
 
+    def test_whoami_admin_follows_the_admin_grant_not_the_role_name(self) -> None:
+        def admin(who: str) -> bool:
+            return self.rpc(who, "system.whoami")["result"]["admin"]
+
+        assert admin("admin") and admin("steward")
+        assert not admin("operator") and not admin("nobody")
+
     def test_users_manage_their_own_tokens(self) -> None:
         issued = self.rpc("operator", "system.create_token", name="ci", grants=["call reports"])
         secret = issued["result"]["secret"]
@@ -145,6 +156,24 @@ class TestRpcAccess(AccessTestCase):
         viewer_id = next(u["id"] for u in users if u["name"] == "viewer")
         assert self.rpc("admin", "system.disable_user", user=viewer_id)["result"] is None
         assert self.rpc("viewer", "system.whoami")["error"]["code"] == -32000
+
+    def test_list_users_marks_only_the_builtin_admin(self) -> None:
+        users = self.rpc("admin", "system.list_users")["result"]
+        assert [u["id"] for u in users if u["builtin"]] == ["admin"]
+
+    def test_list_roles_needs_admin_and_shows_each_roles_grants(self) -> None:
+        assert self.rpc("operator", "system.list_roles")["error"]["code"] == -32003
+        roles = {r["name"]: r["grants"] for r in self.rpc("steward", "system.list_roles")["result"]}
+        assert roles == {
+            "admin": ["call *", "read *", "trigger *", "view *", "admin *"],
+            "operator": ["call reports", "read reports"],
+            "steward": ["admin *"],
+            "viewer": ["read *"],
+        }
+
+    def test_list_roles_marks_only_the_builtin_admin(self) -> None:
+        result = self.rpc("steward", "system.list_roles")["result"]
+        assert [r["name"] for r in result if r["builtin"]] == ["admin"]
 
     def test_delete_user_needs_admin_and_ends_access_at_once(self) -> None:
         err = self.rpc("operator", "system.delete_user", user="viewer")["error"]
@@ -249,6 +278,11 @@ class TestPendingUser(AccessTestCase):
         users = {u["id"]: u for u in self.rpc("admin", "system.list_users")["result"]}
         assert users[self.user_id]["status"] == "active"
         assert users[self.user_id]["roles"] == ["operator", "viewer"]
+        assert users[self.user_id]["role_assignments"] == [
+            {"role": "operator", "source": "provider:okta"},
+            {"role": "viewer", "source": "manual"},
+        ]
+        assert users[self.user_id]["providers"] == ["okta"]
         err = self.rpc("admin", "system.approve_user", user=self.user_id)["error"]
         assert err["code"] == -32602 and "not pending" in err["message"]
 
