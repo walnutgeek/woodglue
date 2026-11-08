@@ -16,13 +16,16 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `fire_trigger`, `activate_trigger`, and `deactivate_trigger` need `trigger`.
 - `list_uis` shows the UIs the Caller may open (`view` on `ui:<name>`, or
   public ones).
-- `describe_initiators` names the Users behind runs' `initiated_by`.
+- `describe_initiators` names the Users behind runs' `initiated_by`, and needs
+  `read` on some namespace.
 - `whoami` and a User's own tokens (`create_token`, `list_tokens`,
   `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
-  a Session can create tokens (see `Caller.may_issue_credentials`).
-- User management (`list_users`, `create_service_user`, `disable_user`,
-  `enable_user`, `delete_user`, `assign_role`, `unassign_role`) and other Users'
-  tokens need `admin`.
+  a Session of an `active` User can create tokens (see
+  `Caller.may_issue_credentials`).
+- User management (`list_users`, `create_service_user`, `approve_user`,
+  `disable_user`, `enable_user`, `delete_user`, `assign_role`,
+  `unassign_role`) and other Users' tokens need `admin`. Denying a `pending`
+  User is `disable_user`.
 """
 
 from __future__ import annotations
@@ -36,12 +39,20 @@ from lythonic.compose.dag_runner import DagRunResult
 from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 
-from woodglue.access import Action, Caller, check, current_caller
+from woodglue.access import AccessDenied, Action, Caller, check, current_caller
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
 from woodglue.apps.ui_process import UiProcesses, UiState
 from woodglue.apps.uis import CONSOLE, ui_path
-from woodglue.auth_store import AuthStore, IssuedToken, TokenInfo, UnknownUser, User
+from woodglue.auth_store import (
+    AuthStore,
+    IssuedToken,
+    TokenInfo,
+    UnknownUser,
+    User,
+    UserDisabled,
+    UserPending,
+)
 from woodglue.config import NamespaceEntry, UiEntry
 from woodglue.engine import EngineRegistry, NamespaceEngine
 
@@ -383,6 +394,8 @@ def build_system_namespace(
         """
         caller = _require_user_caller()
         assert caller.user_id is not None
+        if caller.pending:
+            raise RpcError(INVALID_PARAMS, "Users pending approval cannot create tokens")
         if not caller.may_issue_credentials:
             raise RpcError(INVALID_PARAMS, "Narrowed and Delegated Tokens cannot create tokens")
         expires_at = (
@@ -390,7 +403,7 @@ def build_system_namespace(
         )
         try:
             return _store().create_token(caller.user_id, name, expires_at=expires_at, grants=grants)
-        except ValueError as exc:
+        except (ValueError, UserPending, UserDisabled) as exc:
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def list_tokens(user: str | None = None) -> list[TokenInfo]:
@@ -417,7 +430,17 @@ def build_system_namespace(
         Display names for `initiated_by` values of runs and trigger changes:
         `Name <email>` for a User id, anything else (`scheduler`, `cli:<user>`,
         an unknown id) as is.
+
+        Needs `read` on some namespace: that is what shows runs and trigger
+        changes, the only places these values come from, and it keeps a Caller
+        with no Grants (such as a `pending` User) from looking up names and
+        emails by User id.
         """
+        caller = current_caller.get()
+        if caller is not None and not any(
+            caller.can(Action.read, ns) for ns in namespaces if ns != SYSTEM_PREFIX
+        ):
+            raise AccessDenied(Action.read, "")
         result = {i: i for i in initiators}
         if auth_store is None:
             return result
@@ -443,8 +466,19 @@ def build_system_namespace(
         except ValueError as exc:
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
+    def approve_user(user: str, roles: list[str] | None = None) -> None:
+        """
+        Approve a `pending` User, making it `active` with its synced Roles plus
+        `roles`. Fails if the User is not pending.
+        """
+        check(Action.admin)
+        try:
+            _store().approve_user(_find_user(user).id, roles or ())
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
+
     def disable_user(user: str) -> None:
-        """Disable a User and revoke all of its credentials."""
+        """Disable a User and revoke all of its credentials. This also denies a `pending` User."""
         check(Action.admin)
         try:
             _store().set_disabled(_find_user(user).id, True)
@@ -452,9 +486,15 @@ def build_system_namespace(
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def enable_user(user: str) -> None:
-        """Re-enable a disabled User. Its revoked credentials stay revoked."""
+        """
+        Re-enable a disabled User, making it `active`. Its revoked credentials
+        stay revoked. A `pending` User must be approved instead.
+        """
         check(Action.admin)
-        _store().set_disabled(_find_user(user).id, False)
+        try:
+            _store().set_disabled(_find_user(user).id, False)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def delete_user(user: str) -> None:
         """
@@ -476,9 +516,12 @@ def build_system_namespace(
             raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     def unassign_role(user: str, role: str) -> None:
-        """Take a Role away from a User."""
+        """Take a Role away from a User. The built-in `admin` always keeps `admin`."""
         check(Action.admin)
-        _store().unassign_role(_find_user(user).id, role)
+        try:
+            _store().unassign_role(_find_user(user).id, role)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, str(exc)) from None
 
     for fn, fn_nsref in [
         (list_uis, "list_uis"),
@@ -489,6 +532,7 @@ def build_system_namespace(
         (describe_initiators, "describe_initiators"),
         (list_users, "list_users"),
         (create_service_user, "create_service_user"),
+        (approve_user, "approve_user"),
         (disable_user, "disable_user"),
         (enable_user, "enable_user"),
         (delete_user, "delete_user"),

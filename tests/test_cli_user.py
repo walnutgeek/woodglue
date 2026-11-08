@@ -8,7 +8,7 @@ from textwrap import dedent
 import pytest
 
 from woodglue.access import Action, resolve_roles
-from woodglue.auth_store import AuthStore
+from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.cli import main_at
 
 ROLES = {"operator": ["call reports", "call billing"]}
@@ -70,6 +70,36 @@ def test_revoke_and_disable(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
     assert store.resolve(second) is None
 
 
+def test_list_shows_status_and_approve_activates_a_pending_user(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path)
+    _wgl(tmp_path, capsys, "user", "list")
+    pat = _store(tmp_path).sign_in_person(
+        "okta",
+        "p1",
+        email="pat@x.com",
+        email_verified=True,
+        name="Pat",
+        role_sources={},
+        admit_as=UserStatus.pending,
+    )
+    listing = _wgl(tmp_path, capsys, "user", "list")
+    assert f"{pat.id}\tperson\tpending\tPat <pat@x.com>\troles=" in listing
+    assert "admin\tservice\tactive\tadmin\troles=admin" in listing
+    with pytest.raises(SystemExit) as exc_info:
+        main_at.run_args(["wgl", f"--data={tmp_path}", "user", "issue", "pat@x.com", "t"])
+    assert "pending" in str(exc_info.value.code)
+
+    _wgl(tmp_path, capsys, "user", "approve", "pat@x.com", "--role=operator")
+    assert f"{pat.id}\tperson\tactive\tPat <pat@x.com>\troles=operator" in _wgl(
+        tmp_path, capsys, "user", "list"
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main_at.run_args(["wgl", f"--data={tmp_path}", "user", "approve", "pat@x.com"])
+    assert "not pending" in str(exc_info.value.code)
+
+
 def test_delete_removes_the_user_and_revokes_its_tokens_without_prompting(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -92,6 +122,17 @@ def test_delete_refuses_admin_and_unknown_users_with_message(
             main_at.run_args(["wgl", f"--data={tmp_path}", "user", "delete", user])
         assert user in str(exc_info.value.code)
     assert "admin" in {u.name for u in _store(tmp_path).list_users()}
+
+
+def test_unassigning_admin_from_the_built_in_admin_exits_with_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path)
+    _wgl(tmp_path, capsys, "user", "list")
+    with pytest.raises(SystemExit) as exc_info:
+        main_at.run_args(["wgl", f"--data={tmp_path}", "user", "unassign", "admin", "admin"])
+    assert "cannot lose the 'admin' Role" in str(exc_info.value.code)
+    assert _store(tmp_path).find_user("admin").roles == ["admin"]
 
 
 def test_unknown_user_or_role_exits_with_message(

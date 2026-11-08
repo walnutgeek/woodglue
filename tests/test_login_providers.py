@@ -249,6 +249,26 @@ class LoginTestCase(tornado.testing.AsyncHTTPTestCase):
         }
         return self.callback("okta", query, cookie)
 
+    def github_sign_in(self, user_id: int, orgs: list[str], teams: list[str]) -> Any:
+        token = f"gh-{user_id}"
+        self.fake.github_profiles[token] = {
+            "user": {"id": user_id, "login": f"user{user_id}", "name": None, "email": None},
+            "user/emails": [
+                {"email": f"u{user_id}@gh.example", "primary": True, "verified": True},
+                {"email": "old@gh.example", "primary": False, "verified": True},
+            ],
+            "user/orgs": [{"login": o} for o in orgs],
+            "user/teams": [
+                {"slug": t.split("/")[1], "organization": {"login": t.split("/")[0]}} for t in teams
+            ],
+        }
+        query, cookie = self.start("github")
+        self.fake.codes["c1"] = {
+            "challenge": query["code_challenge"],
+            "github": self.fake.github_profiles[token],
+        }
+        return self.callback("github", query, cookie)
+
     def whoami(self, resp: tornado.httpclient.HTTPResponse) -> dict[str, Any]:
         """The signed-in User, as the Session cookie resolves."""
         session = _cookie(resp, "wgl_session")
@@ -320,26 +340,6 @@ class TestOidc(LoginTestCase):
 
 
 class TestGitHub(LoginTestCase):
-    def github_sign_in(self, user_id: int, orgs: list[str], teams: list[str]) -> Any:
-        token = f"gh-{user_id}"
-        self.fake.github_profiles[token] = {
-            "user": {"id": user_id, "login": f"user{user_id}", "name": None, "email": None},
-            "user/emails": [
-                {"email": f"u{user_id}@gh.example", "primary": True, "verified": True},
-                {"email": "old@gh.example", "primary": False, "verified": True},
-            ],
-            "user/orgs": [{"login": o} for o in orgs],
-            "user/teams": [
-                {"slug": t.split("/")[1], "organization": {"login": t.split("/")[0]}} for t in teams
-            ],
-        }
-        query, cookie = self.start("github")
-        self.fake.codes["c1"] = {
-            "challenge": query["code_challenge"],
-            "github": self.fake.github_profiles[token],
-        }
-        return self.callback("github", query, cookie)
-
     def test_org_member_signs_in_with_team_roles(self) -> None:
         resp = self.github_sign_in(7, ["walnutgeek"], ["walnutgeek/core"])
         assert resp.code == 302
@@ -367,6 +367,73 @@ class TestTrustEmail(LoginTestCase):
         resp = self.oidc_sign_in({"sub": "e1", "email": "dana@x.com"})
         assert resp.code == 302
         assert self.whoami(resp)["email"] == "dana@x.com"
+
+
+class TestAdmitAsPending(LoginTestCase):
+    @override
+    def get_app(self) -> tornado.web.Application:
+        app = super().get_app()
+        for client in app.settings["login_providers"].values():
+            client.config.admit_as = "pending"
+        return app
+
+    def status_of(self, email: str) -> str:
+        return self.store.find_user(email).status
+
+    def test_new_users_are_pending_through_oidc_and_github(self) -> None:
+        resp = self.oidc_sign_in(
+            {"sub": "u1", "email": "ann@x.com", "email_verified": True, "groups": ["ops"]}
+        )
+        assert resp.code == 302
+        assert self.status_of("ann@x.com") == "pending"
+        assert self.whoami(resp)["roles"] == ["operator", "viewer"]
+        assert self.github_sign_in(7, ["walnutgeek"], []).code == 302
+        assert self.status_of("u7@gh.example") == "pending"
+
+    def test_configured_admins_sign_in_active(self) -> None:
+        resp = self.oidc_sign_in({"sub": "b", "email": "boss@x.com", "email_verified": True})
+        assert resp.code == 302
+        assert self.status_of("boss@x.com") == "active"
+
+    def test_pending_user_added_to_admins_is_promoted_at_next_sign_in(self) -> None:
+        ann = {"sub": "u1", "email": "ann@x.com", "email_verified": True}
+        self.oidc_sign_in(ann)
+        self.github_sign_in(7, ["walnutgeek"], [])
+        assert self.status_of("ann@x.com") == "pending"
+        self._app.settings["config"].auth.admins.extend(["ann@x.com", "u7@gh.example"])
+        self.oidc_sign_in(ann)
+        self.github_sign_in(7, ["walnutgeek"], [])
+        assert self.status_of("ann@x.com") == "active"
+        assert self.status_of("u7@gh.example") == "active"
+
+    def test_disabled_admin_stays_disabled(self) -> None:
+        self.oidc_sign_in({"sub": "b", "email": "boss@x.com", "email_verified": True})
+        self.store.set_disabled(self.store.find_user("boss@x.com").id, True)
+        resp = self.oidc_sign_in({"sub": "b", "email": "boss@x.com", "email_verified": True})
+        assert resp.code == 403
+        assert self.status_of("boss@x.com") == "disabled"
+
+    def test_sign_in_logs_name_users_by_id_and_hold_no_email(self) -> None:
+        with self.assertLogs(level="INFO") as logs:
+            self.oidc_sign_in({"sub": "u1", "email": "ann@x.com", "email_verified": True})
+            self.oidc_sign_in({"sub": "b", "email": "boss@x.com", "email_verified": True})
+            self.oidc_sign_in({"sub": "e", "email": "eve@else.org", "email_verified": True})
+            self.github_sign_in(7, ["walnutgeek"], [])
+        messages = [r.getMessage() for r in logs.records]
+        for email in ("ann@x.com", "boss@x.com", "eve@else.org", "u7@gh.example"):
+            assert not [m for m in messages if email in m], email
+        ann, gh = self.store.find_user("ann@x.com").id, self.store.find_user("u7@gh.example").id
+        assert f"New pending User {ann} via okta" in messages
+        assert f"New pending User {gh} via github" in messages
+        assert f"Signed in {ann} with okta" in messages
+        assert len([m for m in messages if m.startswith("New pending User")]) == 2
+
+    def test_existing_active_user_stays_active(self) -> None:
+        self._app.settings["login_providers"]["okta"].config.admit_as = "active"
+        self.oidc_sign_in({"sub": "u1", "email": "ann@x.com", "email_verified": True})
+        self._app.settings["login_providers"]["okta"].config.admit_as = "pending"
+        self.oidc_sign_in({"sub": "u1", "email": "ann@x.com", "email_verified": True})
+        assert self.status_of("ann@x.com") == "active"
 
 
 class TestSecretsStayOutOfLogs(LoginTestCase):

@@ -34,7 +34,7 @@ import tornado.httputil
 import tornado.web
 
 from woodglue.access import ANONYMOUS, Caller
-from woodglue.apps.identity_providers import SignInError, TrustedProxy, admits, role_sources
+from woodglue.apps.identity_providers import SignInError, TrustedProxy, admits, is_admin, sign_in
 from woodglue.auth_store import AuthStore, UserDisabled
 
 logger = logging.getLogger(__name__)
@@ -97,33 +97,30 @@ def _proxy_authentication(
             return Authentication(None, AuthVia.cookie)
         if who is None:
             continue
+        admins: list[str] = settings["config"].auth.admins
         secret = handler.get_cookie(SESSION_COOKIE)
         if secret:
             caller = store.resolve(secret)
-            if caller is not None and caller.user_id == store.linked_user(
-                who.provider, who.subject
+            # A pending User now in `auth.admins` signs in again, which makes them active.
+            if (
+                caller is not None
+                and caller.user_id == store.linked_user(who.provider, who.subject)
+                and not (caller.pending and is_admin(who, admins))
             ):
                 return Authentication(caller, AuthVia.cookie, secret)
         if not admits(proxy.config.admit, who):
-            logger.info("Proxy sign-in refused for %s (%s)", who.subject, who.email)
+            # Not the subject: a header proxy's subject is the person's email.
+            logger.info("Proxy sign-in through %s refused by its admit rules", who.provider)
             return Authentication(None, AuthVia.cookie)
-        admins: list[str] = settings["config"].auth.admins
         try:
-            user = store.sign_in_person(
-                who.provider,
-                who.subject,
-                email=who.email,
-                email_verified=who.email_verified,
-                name=who.name,
-                role_sources=role_sources(proxy.config, who, admins),
-            )
+            user = sign_in(store, proxy.config, who, admins)
         except UserDisabled:
             return Authentication(None, AuthVia.cookie)
         # Clients that keep no cookies, such as scripts behind the proxy, share one Session.
         origin = f"proxy:{who.provider}"
         secret = store.live_session(user.id, origin) or store.create_session(user.id, origin)
         set_session_cookie(handler, secret)
-        logger.info("Signed in %s (%s) through proxy %s", user.id, user.email, who.provider)
+        logger.info("Signed in %s through proxy %s", user.id, who.provider)
         return Authentication(store.resolve(secret), AuthVia.cookie, secret)
     return None
 

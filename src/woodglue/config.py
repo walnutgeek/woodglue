@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from importlib.util import find_spec
 from pathlib import Path, PureWindowsPath
-from typing import Any
+from typing import Any, Literal
 
 from lythonic.compose.engine import StorageConfig
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
@@ -313,6 +313,12 @@ class ProviderConfig(BaseModel):
     as `${NAME}`. `default_roles` and the Roles that `group_roles` maps a
     person's groups to are re-applied at every login, so removing someone from
     a group takes their Role away at their next login.
+
+    `admit_as: pending` makes a User this provider's sign-in creates wait for an
+    admin's approval, holding no Grants until then; people in `auth.admins` are
+    still created `active`. It does not change the status of existing Users,
+    except that a `pending` User later added to `auth.admins` becomes `active`
+    at their next sign-in.
     """
 
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -339,6 +345,7 @@ class ProviderConfig(BaseModel):
     github_url: str = "https://github.com"
     github_api_url: str = "https://api.github.com"
     admit: AdmitRules
+    admit_as: Literal["active", "pending"] = "active"
     default_roles: list[str] = []
     group_roles: dict[str, list[str]] = {}
 

@@ -6,10 +6,16 @@ random secrets looked up on every request (see `docs/adr/0002`), so revoking a
 token, disabling or deleting a User, or changing a Role assignment takes effect
 immediately, including on a running server.
 
-Disabling a User keeps its record, so the person stays refused. Deleting erases
-it, with its Role assignments, Linked Identities, and credentials; if the person
-signs in again they become a new User. Run history outside `auth.db` keeps the
-deleted User's id.
+A User's status (`UserStatus`) is `pending`, `active`, or `disabled`. A person
+whose Identity Provider sets `admit_as: pending` starts `pending`: signed in, with
+its synced Role assignments, but no Grants and no way to create credentials
+until `approve_user` makes it `active`. Only `person` Users are ever pending.
+
+Disabling a User keeps its record, so the person stays refused; it is also how a
+pending User is denied. Enabling makes a disabled User `active`, never `pending`.
+Deleting erases a User, with its Role assignments, Linked Identities, and
+credentials; if the person signs in again they become a new User. Run history
+outside `auth.db` keeps the deleted User's id.
 
 Role definitions are not stored here: they come from `woodglue.yaml` (see
 `woodglue.access`). A Role assignment naming a Role that is no longer defined
@@ -27,7 +33,8 @@ do.
 
 The built-in `admin` Service User owns the tokens that `wgl token` prints. Tokens
 from the pre-Users `tokens` table are migrated to it on first open, so existing
-scripts keep working.
+scripts keep working. It cannot be disabled, deleted, or lose the `admin` Role,
+so `wgl token` always yields full access.
 """
 
 from __future__ import annotations
@@ -36,7 +43,7 @@ import json
 import logging
 import secrets
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -49,7 +56,7 @@ from woodglue.access import ADMIN_ROLE, Caller, Grant
 logger = logging.getLogger(__name__)
 
 ADMIN_USER_ID = "admin"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 MANUAL = "manual"
 """Source of Role assignments made by an admin, as opposed to synced at sign-in."""
@@ -66,6 +73,17 @@ class UserKind(StrEnum):
     service = "service"
 
 
+class UserStatus(StrEnum):
+    """
+    `pending` Users are signed in but hold no Grants until approved; only
+    `person` Users can be pending. `disabled` Users are refused everywhere.
+    """
+
+    pending = "pending"
+    active = "active"
+    disabled = "disabled"
+
+
 class CredentialKind(StrEnum):
     token = "token"
     session = "session"
@@ -77,7 +95,7 @@ class User(BaseModel):
     name: str
     email: str | None = None
     kind: UserKind
-    disabled: bool = False
+    status: UserStatus = UserStatus.active
     roles: list[str] = []
     created_at: datetime
 
@@ -105,6 +123,10 @@ class UnknownUser(LookupError):
 
 
 class UserDisabled(PermissionError):
+    pass
+
+
+class UserPending(PermissionError):
     pass
 
 
@@ -158,8 +180,24 @@ class AuthStore:
             conn.commit()
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
-        if conn.execute("PRAGMA user_version").fetchone()[0] >= _SCHEMA_VERSION:
-            return
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == 0:
+            self._create_schema(conn)
+            conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        elif version == 1:
+            # One transaction with the version bump, so a crash cannot leave it half done.
+            conn.executescript(
+                """
+                BEGIN;
+                ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+                UPDATE users SET status = 'disabled' WHERE disabled;
+                ALTER TABLE users DROP COLUMN disabled;
+                PRAGMA user_version = 2;
+                COMMIT;
+                """
+            )
+
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
             CREATE TABLE users (
@@ -167,7 +205,7 @@ class AuthStore:
                 name TEXT NOT NULL,
                 email TEXT UNIQUE,
                 kind TEXT NOT NULL,
-                disabled INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
                 created_at TEXT NOT NULL
             );
             CREATE TABLE role_assignments (
@@ -217,7 +255,6 @@ class AuthStore:
                     ),
                 )
             conn.execute("DROP TABLE tokens")
-        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def _ensure_admin_user(self, conn: sqlite3.Connection) -> None:
         conn.execute(
@@ -244,7 +281,7 @@ class AuthStore:
             name=row["name"],
             email=row["email"],
             kind=UserKind(row["kind"]),
-            disabled=bool(row["disabled"]),
+            status=UserStatus(row["status"]),
             roles=roles,
             created_at=datetime.fromisoformat(row["created_at"]),
         )
@@ -296,19 +333,49 @@ class AuthStore:
 
     def unassign_role(self, user_id: str, role: str) -> None:
         """Remove a Role from every source; a provider re-adds its own at the next sign-in."""
+        if user_id == ADMIN_USER_ID and role == ADMIN_ROLE:
+            raise ValueError("The built-in admin User cannot lose the 'admin' Role")
         with self._connect() as conn:
             self._require_user(conn, user_id)
             conn.execute(
                 "DELETE FROM role_assignments WHERE user_id = ? AND role = ?", (user_id, role)
             )
 
+    def approve_user(self, user_id: str, roles: Sequence[str] = ()) -> None:
+        """
+        Make a `pending` User `active`, assigning `roles` manually. Raises
+        `ValueError` if the User is not pending, so that approving from a stale
+        view fails visibly rather than doing nothing.
+        """
+        for role in roles:
+            if role not in self.roles:
+                raise ValueError(f"Unknown Role {role!r}; defined: {', '.join(sorted(self.roles))}")
+        with self._connect() as conn:
+            status = self._require_user(conn, user_id)
+            if status != UserStatus.pending:
+                raise ValueError(f"User {user_id} is {status}, not pending")
+            conn.execute("UPDATE users SET status = ? WHERE id = ?", (UserStatus.active, user_id))
+            for role in roles:
+                conn.execute(
+                    "INSERT OR IGNORE INTO role_assignments (user_id, role, source) "
+                    + "VALUES (?, ?, ?)",
+                    (user_id, role, MANUAL),
+                )
+
     def set_disabled(self, user_id: str, disabled: bool) -> None:
-        """Disable or re-enable a User. Disabling deletes all of its credentials."""
+        """
+        Disable or re-enable a User. Disabling deletes all of its credentials
+        and is also how a `pending` User is denied. Enabling makes the User
+        `active`; a `pending` User must be approved instead.
+        """
         if disabled and user_id == ADMIN_USER_ID:
             raise ValueError("The built-in admin User cannot be disabled")
         with self._connect() as conn:
-            self._require_user(conn, user_id)
-            conn.execute("UPDATE users SET disabled = ? WHERE id = ?", (int(disabled), user_id))
+            current = self._require_user(conn, user_id)
+            if not disabled and current == UserStatus.pending:
+                raise ValueError(f"User {user_id} is pending; approve it instead")
+            status = UserStatus.disabled if disabled else UserStatus.active
+            conn.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
             if disabled:
                 conn.execute("DELETE FROM credentials WHERE user_id = ?", (user_id,))
 
@@ -341,6 +408,8 @@ class AuthStore:
         email_verified: bool,
         name: str,
         role_sources: dict[str, list[str]],
+        admit_as: UserStatus = UserStatus.active,
+        activate_pending: bool = False,
     ) -> User:
         """
         Find or create the User for an Identity Provider's assertion, after the
@@ -351,6 +420,10 @@ class AuthStore:
         An unverified email is not stored, so it can never take over an account.
         Each entry of `role_sources` replaces that source's Role assignments,
         leaving assignments from other sources (and manual ones) alone.
+
+        `admit_as` is the status of a User this creates, `active` or `pending`;
+        an existing User keeps its status, except that `activate_pending`
+        (set for configured admins) makes a `pending` User `active`.
 
         Raises `UserDisabled` if the User is disabled.
         """
@@ -367,17 +440,24 @@ class AuthStore:
                     (verified_email, UserKind.person),
                 ).fetchone()
             now = self.clock().isoformat()
+            created = False
             if row is None:
                 user_id = _new_id("usr")
                 conn.execute(
-                    "INSERT INTO users (id, name, email, kind, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (user_id, name, verified_email, UserKind.person, now),
+                    "INSERT INTO users (id, name, email, kind, status, created_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?)",
+                    (user_id, name, verified_email, UserKind.person, admit_as, now),
                 )
+                created = True
             else:
                 user_id = row["id"]
-                if row["disabled"]:
+                if row["status"] == UserStatus.disabled:
                     raise UserDisabled(f"User {user_id} is disabled")
                 conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user_id))
+                if activate_pending and row["status"] == UserStatus.pending:
+                    conn.execute(
+                        "UPDATE users SET status = ? WHERE id = ?", (UserStatus.active, user_id)
+                    )
                 if verified_email and row["email"] != verified_email:
                     taken = conn.execute(
                         "SELECT 1 FROM users WHERE email = ?", (verified_email,)
@@ -406,11 +486,18 @@ class AuthStore:
                         (user_id, role, source),
                     )
             user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-            return self._user_from_row(conn, user_row)
+            user = self._user_from_row(conn, user_row)
+        # Logged only once committed. No email: log lines cannot be erased with the User.
+        if created and user.status == UserStatus.pending:
+            logger.info("New pending User %s via %s", user.id, provider)
+        return user
 
-    def _require_user(self, conn: sqlite3.Connection, user_id: str) -> None:
-        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+    def _require_user(self, conn: sqlite3.Connection, user_id: str) -> UserStatus:
+        """The User's status; raises `UnknownUser` if there is no such User."""
+        row = conn.execute("SELECT status FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
             raise UnknownUser(f"No User with id {user_id!r}")
+        return UserStatus(row["status"])
 
     # Personal Access Tokens
 
@@ -426,11 +513,19 @@ class AuthStore:
         Issue a Personal Access Token. `grants`, if given, narrows the token to
         a subset of its User's Grants; they are validated but not checked
         against the User, since the effective set is computed per request.
+
+        Raises `UserPending` or `UserDisabled` unless the User is `active`. The
+        check is here, not only at each route, because a request approved
+        earlier (such as a CLI code) can be redeemed after the status changed.
         """
         if grants is not None:
             grants = [str(Grant.parse(g)) for g in grants]
         with self._connect() as conn:
-            self._require_user(conn, user_id)
+            status = self._require_user(conn, user_id)
+            if status == UserStatus.pending:
+                raise UserPending(f"User {user_id} is pending approval")
+            if status == UserStatus.disabled:
+                raise UserDisabled(f"User {user_id} is disabled")
             return self._insert_token(conn, user_id, name, expires_at, grants)
 
     def _insert_token(
@@ -634,11 +729,11 @@ class AuthStore:
         now = self.clock()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT c.expires_at, c.last_used_at, u.disabled FROM credentials c "
+                "SELECT c.expires_at, c.last_used_at, u.status FROM credentials c "
                 + "JOIN users u ON u.id = c.user_id WHERE c.secret = ? AND c.kind = ?",
                 (secret, CredentialKind.session),
             ).fetchone()
-        if row is None or row["disabled"]:
+        if row is None or row["status"] == UserStatus.disabled:
             return False
         expires_at = _parse_time(row["expires_at"])
         last_used = _parse_time(row["last_used_at"]) or now
@@ -666,7 +761,7 @@ class AuthStore:
                 + "u.* FROM credentials c JOIN users u ON u.id = c.user_id WHERE c.secret = ?",
                 (secret,),
             ).fetchone()
-            if row is None or row["disabled"]:
+            if row is None or row["status"] == UserStatus.disabled:
                 return None
             expires_at = _parse_time(row["expires_at"])
             if expires_at is not None and expires_at <= now:
@@ -689,7 +784,8 @@ class AuthStore:
         self, user: User, credential_id: str, credential_kind: str, token_grants: str | None
     ) -> Caller:
         user_grants: list[Grant] = []
-        for role in user.roles:
+        # A pending User's Roles keep syncing at sign-in but grant nothing until approval.
+        for role in user.roles if user.status != UserStatus.pending else ():
             grants = self.roles.get(role)
             if grants is None:
                 logger.warning("User %s has undefined Role %r; it grants nothing", user.id, role)
@@ -706,4 +802,5 @@ class AuthStore:
             name=user.name,
             email=user.email,
             roles=tuple(user.roles),
+            pending=user.status == UserStatus.pending,
         )

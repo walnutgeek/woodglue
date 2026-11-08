@@ -132,7 +132,8 @@ class Caller:
     """
     Who a request runs as. `user_id` is `None` only for the anonymous Caller
     used when auth is disabled. `credential_id` and `credential_kind` name the
-    token or Session that authenticated the request.
+    token or Session that authenticated the request. A `pending` Caller is a
+    User awaiting approval: it holds no Grants, whatever its `roles`.
     """
 
     user_id: str | None
@@ -142,6 +143,7 @@ class Caller:
     name: str = ""
     email: str | None = None
     roles: tuple[str, ...] = field(default_factory=tuple)
+    pending: bool = False
 
     def can(self, action: Action, target: str = "") -> bool:
         return all(allows(gs, action, target) for gs in self.grant_sets)
@@ -154,12 +156,13 @@ class Caller:
     def may_issue_credentials(self) -> bool:
         """
         Whether this Caller may create tokens or Sessions. Only an unnarrowed
-        Personal Access Token or a Session may: a narrowed token could mint
-        one broader than itself, and a Delegated Token one that outlives its
-        Session.
+        Personal Access Token or a Session may, and not while its User is
+        pending: a narrowed token could mint one broader than itself, and a
+        Delegated Token one that outlives its Session.
         """
         return (
             self.user_id is not None
+            and not self.pending
             and not self.narrowed
             and self.credential_kind
             in (
