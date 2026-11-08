@@ -16,7 +16,8 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `fire_trigger`, `activate_trigger`, and `deactivate_trigger` need `trigger`.
 - `list_uis` shows the UIs the Caller may open (`view` on `ui:<name>`, or
   public ones).
-- `describe_initiators` names the Users behind runs' `initiated_by`.
+- `describe_initiators` names the Users behind runs' `initiated_by`, and needs
+  `read` on some namespace.
 - `whoami` and a User's own tokens (`create_token`, `list_tokens`,
   `revoke_token`) need no Grant. Only an unnarrowed Personal Access Token or
   a Session of an `active` User can create tokens (see
@@ -38,7 +39,7 @@ from lythonic.compose.dag_runner import DagRunResult
 from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 
-from woodglue.access import Action, Caller, check, current_caller
+from woodglue.access import AccessDenied, Action, Caller, check, current_caller
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
 from woodglue.apps.ui_process import UiProcesses, UiState
@@ -429,7 +430,17 @@ def build_system_namespace(
         Display names for `initiated_by` values of runs and trigger changes:
         `Name <email>` for a User id, anything else (`scheduler`, `cli:<user>`,
         an unknown id) as is.
+
+        Needs `read` on some namespace: that is what shows runs and trigger
+        changes, the only places these values come from, and it keeps a Caller
+        with no Grants (such as a `pending` User) from looking up names and
+        emails by User id.
         """
+        caller = current_caller.get()
+        if caller is not None and not any(
+            caller.can(Action.read, ns) for ns in namespaces if ns != SYSTEM_PREFIX
+        ):
+            raise AccessDenied(Action.read, "")
         result = {i: i for i in initiators}
         if auth_store is None:
             return result

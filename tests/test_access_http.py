@@ -155,6 +155,15 @@ class TestRpcAccess(AccessTestCase):
         users = self.rpc("admin", "system.list_users")["result"]
         assert "viewer" not in {u["name"] for u in users}
 
+    def test_describe_initiators_needs_read_on_some_namespace(self) -> None:
+        users = {u["name"]: u["id"] for u in self.rpc("admin", "system.list_users")["result"]}
+        viewer_id = users["viewer"]
+        for who in ("viewer", "operator", "admin"):
+            names = self.rpc(who, "system.describe_initiators", initiators=[viewer_id])["result"]
+            assert names == {viewer_id: "viewer"}, who
+        err = self.rpc("nobody", "system.describe_initiators", initiators=[viewer_id])["error"]
+        assert err["code"] == -32003 and "read" in err["message"]
+
     def test_delete_user_refuses_admin_and_unknown_users(self) -> None:
         for user in ("admin", "no-such-user"):
             err = self.rpc("admin", "system.delete_user", user=user)["error"]
@@ -205,6 +214,8 @@ class TestPendingUser(AccessTestCase):
         assert "reports.hello" not in self.get_as_pat("/docs/llms.txt").body.decode()
         assert self.get_as_pat("/docs/methods/reports.hello.md").code == 404
         assert self.get_as_pat("/console/").code == 403
+        err = self.as_pat("system.describe_initiators", initiators=[self.user_id])["error"]
+        assert err["code"] == -32003
 
         assert self.rpc("admin", "system.approve_user", user="pat@x.com")["result"] is None
         assert self.as_pat("reports.hello", name="ab")["result"] == 2
