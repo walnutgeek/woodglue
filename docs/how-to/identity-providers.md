@@ -24,6 +24,8 @@ auth:
 
 Keep the client secret out of `woodglue.yaml` by referencing an environment
 variable as `${NAME}`. `wgl start` refuses to start if the variable is unset.
+`wgl user` and `wgl token` do not need it, so an admin can manage Users from a
+shell without the provider secrets.
 
 ## Configure providers
 

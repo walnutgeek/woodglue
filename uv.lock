@@ -2571,6 +2571,7 @@ dependencies = [
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "ruamel-yaml" },
     { name = "strif" },
     { name = "tornado" },
 ]
@@ -2605,6 +2606,7 @@ requires-dist = [
     { name = "polars" },
     { name = "pydantic-yaml" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },
+    { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "strif", specifier = ">=3.1.0" },
     { name = "tornado" },
 ]

@@ -5,6 +5,11 @@ The config file lives at `{data_dir}/woodglue.yaml` and is required to run
 the server. It declares storage, namespaces, documentation, UI, and engine
 settings.
 
+Identity Provider secrets may be given as `${NAME}` environment variable
+references. `load_config` expands them unless called with
+`expand_secrets=False`, which the commands that only open `auth.db` use so
+they run without the secrets set.
+
 Logging for `wgl start` is driven by `storage.log_file`, `storage.log_level`,
 `storage.loggers`, `storage.log_max_bytes`, `storage.log_backup_count`, and
 the optional top-level `logging:` section; see `woodglue.log_setup`.
@@ -22,8 +27,15 @@ from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
 
 from lythonic.compose.engine import StorageConfig
-from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
-from pydantic_yaml import parse_yaml_file_as
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
+from ruamel.yaml import YAML
 from typing_extensions import override
 
 from woodglue.access import Grant, resolve_roles
@@ -233,6 +245,9 @@ class NamespaceEntry(BaseModel):
         return self
 
 
+EXPAND_SECRETS = "expand_secrets"
+"""Validation context key; false leaves provider `${NAME}` references as written."""
+
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -309,10 +324,12 @@ class ProviderConfig(BaseModel):
     With a trusted proxy there is no login page: the first request carrying a
     valid assertion signs the person in and starts a Session.
 
-    `client_secret` (and any other string) may reference environment variables
-    as `${NAME}`. `default_roles` and the Roles that `group_roles` maps a
-    person's groups to are re-applied at every login, so removing someone from
-    a group takes their Role away at their next login.
+    `client_id`, `client_secret`, `issuer`, and `audience` may reference
+    environment variables as `${NAME}`, expanded when the config is loaded
+    unless `load_config` is told not to (see there). `default_roles` and the
+    Roles that `group_roles` maps a person's groups to are re-applied at every
+    login, so removing someone from a group takes their Role away at their next
+    login.
 
     `admit_as: pending` makes a User this provider's sign-in creates wait for an
     admin's approval, holding no Grants until then; people in `auth.admins` are
@@ -351,8 +368,10 @@ class ProviderConfig(BaseModel):
 
     @field_validator("client_id", "client_secret", "issuer", "audience")
     @classmethod
-    def _expand_env(cls, value: str | None) -> str | None:
-        return expand_env(value, os.environ) if value is not None else None
+    def _expand_env(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is None or not (info.context or {}).get(EXPAND_SECRETS, True):
+            return value
+        return expand_env(value, os.environ)
 
     @model_validator(mode="after")
     def _check(self) -> ProviderConfig:
@@ -468,16 +487,23 @@ class WoodglueConfig(BaseModel):
         return self
 
 
-def load_config(data_dir: Path) -> WoodglueConfig:
+def load_config(data_dir: Path, *, expand_secrets: bool = True) -> WoodglueConfig:
     """
     Load `WoodglueConfig` from `{data_dir}/woodglue.yaml`.
+
+    `expand_secrets=False` leaves the provider `${NAME}` references unexpanded,
+    so commands that only open `auth.db` (`wgl user`, `wgl token`) run without
+    the provider secrets in the environment. Such a config must not be used to
+    sign anyone in.
 
     Raises `FileNotFoundError` if the file does not exist.
     """
     config_path = data_dir / CONFIG_FILENAME
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
-    return parse_yaml_file_as(WoodglueConfig, config_path)
+    # The YAML 1.2 safe loader pydantic_yaml uses, which cannot pass a validation context.
+    raw = YAML(typ="safe", pure=True).load(config_path)
+    return WoodglueConfig.model_validate(raw, context={EXPAND_SECRETS: expand_secrets})
 
 
 def resolve_package_refs(config: WoodglueConfig) -> None:

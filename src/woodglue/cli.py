@@ -389,7 +389,7 @@ def _auth_store(ctx: RunContext) -> AuthStore:
 
     root: WoodglueMain = ctx.path.get("/")  # pyright: ignore[reportAssignmentType]
     data_dir = root.data.resolve()
-    config = load_config(data_dir)
+    config = load_config(data_dir, expand_secrets=False)
     if not config.auth.enabled:
         sys.exit(f"Auth is disabled in {data_dir / CONFIG_FILENAME}; there are no tokens or Users")
     _resolve_storage(config, data_dir)
