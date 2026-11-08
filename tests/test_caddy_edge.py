@@ -15,7 +15,7 @@ from typing_extensions import override
 
 from woodglue.access import resolve_roles
 from woodglue.apps.server import create_app
-from woodglue.auth_store import AuthStore
+from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.cli import main_at
 from woodglue.config import WoodglueConfig
 
@@ -89,6 +89,23 @@ class TestVerify(tornado.testing.AsyncHTTPTestCase):
         assert resp.headers["Content-Type"].startswith("text/html")
         body = resp.body.decode()
         assert "no access yet" in body and "nobody" in body
+        assert 'action="/auth/logout"' in body
+
+    def test_pending_user_gets_the_awaiting_approval_page(self) -> None:
+        user = self.store.sign_in_person(
+            "google",
+            "sub-pat",
+            email="pat@example.com",
+            email_verified=True,
+            name="Pat",
+            role_sources={"google": ["reports-viewer"]},
+            admit_as=UserStatus.pending,
+        )
+        self.sessions["pat"] = self.store.create_session(user.id)
+        resp = self.verify("/ui/reports/", "pat")
+        assert resp.code == 403
+        body = resp.body.decode()
+        assert "Awaiting approval" in body and "no access yet" not in body
         assert 'action="/auth/logout"' in body
 
     def test_user_with_other_grants_gets_the_bare_403(self) -> None:

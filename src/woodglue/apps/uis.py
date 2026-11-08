@@ -9,8 +9,9 @@ UI marked `public` skips both checks; the API it calls still needs a Caller.
 
 The 403 is a bare message naming the missing Grant, unless a User signed in
 with a Session has no Grants at all (e.g. just signed up with
-`default_roles: []`): then it is a page saying who is signed in and that there
-is no access yet, with Sign out.
+`default_roles: []`, or `pending`): then it is a page saying who is signed in
+and that the account is awaiting approval (if `pending`) or has no access yet,
+with Sign out.
 """
 
 from __future__ import annotations
@@ -126,8 +127,10 @@ _NO_GRANTS_PAGE = dedent("""
     """).strip()
 
 
-def _no_grants_text(caller: Caller) -> tuple[str, str]:  # pyright: ignore[reportUnusedParameter]
+def _no_grants_text(caller: Caller) -> tuple[str, str]:
     """The heading and message of the no-Grants page for `caller`."""
+    if caller.pending:
+        return "Awaiting approval", "Your account is awaiting approval by an admin."
     return "No access yet", "Your account has no access yet; ask an admin to give you a Role."
 
 

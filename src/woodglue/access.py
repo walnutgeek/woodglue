@@ -156,7 +156,8 @@ class Caller:
     def has_grants(self) -> bool:
         """
         Whether the User holds any Grant at all, e.g. `False` for a User with no
-        Roles. Only the first Grant set is the User's own; later sets narrow it.
+        Roles or a `pending` one. Only the first Grant set is the User's own;
+        later sets narrow it.
         """
         return bool(self.grant_sets and self.grant_sets[0])
 

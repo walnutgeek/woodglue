@@ -15,7 +15,7 @@ from typing_extensions import override
 
 from woodglue.access import resolve_roles
 from woodglue.apps.server import create_app
-from woodglue.auth_store import AuthStore
+from woodglue.auth_store import AuthStore, UserStatus
 from woodglue.config import WoodglueConfig
 
 ROLES = {"caller": ["call reports"]}
@@ -56,16 +56,25 @@ class NoGrantsTestCase(tornado.testing.AsyncHTTPTestCase):
     def origin(self) -> str:
         return self.get_url("").rstrip("/")
 
-    def person_session(self, name: str, email: str, roles: list[str] | None = None) -> str:
+    def person_session(
+        self,
+        name: str,
+        email: str,
+        assigned_roles: list[str] | None = None,
+        *,
+        admit_as: UserStatus = UserStatus.active,
+        provider_roles: list[str] | None = None,
+    ) -> str:
         user = self.store.sign_in_person(
             "google",
             f"sub-{name}",
             email=email,
             email_verified=True,
             name=name,
-            role_sources={},
+            role_sources={"google": provider_roles or []},
+            admit_as=admit_as,
         )
-        for role in roles or []:
+        for role in assigned_roles or []:
             self.store.assign_role(user.id, role)
         return f"wgl_session={self.store.create_session(user.id)}"
 
@@ -86,6 +95,18 @@ class TestNoGrantsPage(NoGrantsTestCase):
             assert "no access yet" in body and "ask an admin" in body, path
             assert "Ada" in body and "ada@example.com" in body, path
             assert 'action="/auth/logout"' in body, path
+
+    def test_pending_user_gets_the_awaiting_approval_page(self) -> None:
+        # Roles the provider syncs to a pending User grant nothing until approval.
+        cookie = self.person_session(
+            "Pat", "pat@example.com", admit_as=UserStatus.pending, provider_roles=["caller"]
+        )
+        for path in ("/console/", "/ui/reports/"):
+            resp = self.get(path, cookie)
+            assert resp.code == 403, path
+            body = resp.body.decode()
+            assert "Awaiting approval" in body and "no access yet" not in body, path
+            assert "Pat" in body and 'action="/auth/logout"' in body, path
 
     def test_user_with_other_grants_gets_the_bare_403(self) -> None:
         cookie = self.person_session("Bob", "bob@example.com", ["caller"])
