@@ -26,6 +26,11 @@ jobs:
     # Linux only by default. Use ${{ matrix.os }} for other OSes.
     runs-on: ${{ matrix.os }}
 
+    env:
+      # Use the runner's preinstalled Python. Downloading one from GitHub release
+      # assets fails intermittently with 504s.
+      UV_PYTHON_PREFERENCE: only-system
+
     steps:
       # Generally following uv docs:
       # https://docs.astral.sh/uv/guides/integration/github/
@@ -36,22 +41,18 @@ jobs:
           # Important for versioning plugins:
           fetch-depth: 0
 
+      - name: Set up Python (using actions/setup-python)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
       - name: Install uv (official Astral action)
         uses: astral-sh/setup-uv@v5
         with:
           # Update this as needed:
-          version: "0.6.14"
+          version: "0.13.7"
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-
-      - name: Set up Python (using uv)
-        run: uv python install
-
-      # Alternately can use the official Python action:
-      # - name: Set up Python (using actions/setup-python)
-      #   uses: actions/setup-python@v5
-      #   with:
-      #     python-version: ${{ matrix.python-version }}
 
       - name: Install all dependencies
         run: uv sync --all-extras --dev
