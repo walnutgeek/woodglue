@@ -39,9 +39,21 @@ assignment comes back at the next sign-in if removed.
 _Avoid_: membership, role binding
 
 **Grant**:
-Permission to perform one action on the targets matching a pattern, e.g. `call` on
+Permission to perform one Action on the targets matching a pattern, e.g. `call` on
 `reports`, or `view` on `ui:*`.
 _Avoid_: permission, scope, ACL entry
+
+**Action**:
+What a Grant permits. Built-in Actions (`call`, `read`, `trigger`, `view`, `admin`)
+mean the same on every server; a namespace may add its own, such as `write`, by
+naming them as Required Actions. No Action implies another.
+_Avoid_: verb, operation, permission level
+
+**Required Action**:
+The one Action a method needs before it runs: `call` unless the method declares
+another. A Grant for `call` on a namespace does not reach methods requiring a
+different Action.
+_Avoid_: guard, requires grant, method permission
 
 **Service User**:
 A User with no Linked Identity, used by daemons and CI. It can authenticate only with
