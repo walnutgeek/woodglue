@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote_plus
@@ -22,7 +23,7 @@ import tornado.web
 from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
-from woodglue.access import Grant, is_declared_action, required_action
+from woodglue.access import ANY_ACTION, Action, Grant, is_declared_action, required_action
 from woodglue.apps.auth_pages import CliCodes
 from woodglue.apps.identity_providers import (
     PendingSignIns,
@@ -115,8 +116,8 @@ def _check_required_actions(
 ) -> None:
     """
     Fail on a node declaring a reserved or malformed Required Action, and warn on
-    a Role or UI Grant naming an action no namespace declares: such a Grant
-    reaches nothing, which is usually a typo.
+    a Role or UI Grant that reaches nothing: one naming an action no namespace
+    declares (usually a typo), or one whose namespace pattern has a dot.
     """
     declared: set[str] = set()
     for prefix, (ns, _entry) in namespaces.items():
@@ -140,6 +141,19 @@ def _check_required_actions(
             if is_declared_action(grant.action) and grant.action not in declared:
                 logger.warning(
                     "%s grants action '%s', which no namespace declares", holder, grant.action
+                )
+            # Method names are split at their first dot, so a dotted pattern reaches no
+            # method: usually a `call <ns>.<target>` Grant from before Required Actions.
+            if (
+                grant.action not in (Action.view, Action.admin, ANY_ACTION)
+                and "." in grant.pattern
+                and not any(fnmatchcase(ns, grant.pattern) for ns in namespaces)
+            ):
+                logger.warning(
+                    "%s grants '%s', whose pattern has a '.' and matches no namespace; "
+                    "a method that needs more than `call` declares a Required Action instead",
+                    holder,
+                    grant,
                 )
 
 

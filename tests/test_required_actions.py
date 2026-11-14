@@ -234,3 +234,16 @@ def test_grant_naming_an_undeclared_action_warns(
     assert any("'stray'" in w and "'publish'" in w for w in warnings), warnings
     assert any("UI 'books'" in w and "'glance'" in w for w in warnings), warnings
     assert not any("'ok'" in w for w in warnings), warnings
+
+
+def test_grant_pattern_with_a_dot_warns(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A leftover `call <ns>.<target>` Grant, from before Required Actions, reaches nothing."""
+    with caplog.at_level(logging.WARNING, logger="woodglue.apps.server"):
+        _app_with(
+            ledger_namespace(),
+            {"legacy": ["call ledger", "call ledger.portfolio"], "ok": ["call led*", "read *"]},
+            tmp_path,
+        )
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("'legacy'" in w and "'call ledger.portfolio'" in w for w in warnings), warnings
+    assert not any("'ok'" in w for w in warnings), warnings

@@ -59,7 +59,8 @@ auth:
 The action name is up to the namespace (a lowercase name such as `write` or
 `manage`); `read`, `trigger`, `view`, and `admin` are reserved. A Role naming an
 action that no loaded namespace declares is logged as a warning at startup,
-since it reaches nothing. Firing or activating a trigger on such a method needs
+since it reaches nothing. So is a Grant whose pattern has a dot, such as
+`call ledger.portfolio`: patterns match namespace names, never single methods. Firing or activating a trigger on such a method needs
 its Required Action as well as `trigger`. Method listings (`system.list_methods`,
 `llms.txt`, `openapi.json`, the Console) show each method's Required Action. The
 built-in `admin` Role reaches every action.
