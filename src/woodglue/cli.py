@@ -2,6 +2,8 @@
 wgl -- woodglue server CLI.
 
 Commands:
+
+```
     wgl start          Start the server (and optionally the engine)
     wgl stop           Stop a running instance
     wgl run <nsref>    Run a callable or DAG once
@@ -24,6 +26,7 @@ Commands:
     wgl caddy config <site>   Print a Caddyfile serving this instance at <site>
     wgl login --server=URL    Get a Personal Access Token for a remote server via the browser
     wgl logout --server=URL   Revoke and forget that token
+```
 
 `wgl token` prints the tokens of the built-in `admin` Service User, which holds
 every Grant. `wgl start` never prints a token, since its output may be captured

@@ -191,11 +191,12 @@ class UiStaticHandler(tornado.web.StaticFileHandler):
         self,
         path: str,
         default_filename: str | None = None,
+        allowed_symlink_directory: str | list[str] | None = None,
         ui_name: str = CONSOLE,
         spa_fallback: bool = False,
         public: bool = False,
     ) -> None:
-        super().initialize(path, default_filename)
+        super().initialize(path, default_filename, allowed_symlink_directory)
         self.ui_name = ui_name
         self.spa_fallback = spa_fallback
         self.public = public

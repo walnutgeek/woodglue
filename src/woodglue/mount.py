@@ -30,7 +30,7 @@ data_dir = mount.data_dir if mount else default_data_dir()
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -66,7 +66,7 @@ class MountContext:
         return self.state_dir / filename
 
     @contextmanager
-    def activate(self) -> Iterator[MountContext]:
+    def activate(self) -> Generator[MountContext, None, None]:
         """
         Set `current_mount` to this mount for the duration of the block.
         Tasks created inside the block keep it, since they copy the context.
