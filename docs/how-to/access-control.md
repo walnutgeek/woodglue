@@ -35,6 +35,35 @@ from `system.list_namespaces`, `llms.txt`, and `openapi.json`, and calling
 them answers `-32601 Method not found`. A visible namespace without the
 needed Grant answers `-32003 Forbidden`.
 
+## Methods that need more than `call`
+
+A namespace that mixes reads with writes can make its writes require an action
+of its own. The node declares it as its Required Action:
+
+```python
+@nsnode(tags=["api"], requires="write")
+async def add_trade(...): ...
+```
+
+or `requires: write` on a YAML entry. Only a Grant for `write` on the
+namespace runs it, so `call ledger`, `call ledger*`, and `call *` do not, and
+`write ledger` alone runs only the `write` methods:
+
+```yaml
+auth:
+  roles:
+    reader: ["call ledger"]
+    bookkeeper: ["call ledger", "write ledger"]
+```
+
+The action name is up to the namespace (a lowercase name such as `write` or
+`manage`); `read`, `trigger`, `view`, and `admin` are reserved. A Role naming an
+action that no loaded namespace declares is logged as a warning at startup,
+since it reaches nothing. Firing or activating a trigger on such a method needs
+its Required Action as well as `trigger`. Method listings (`system.list_methods`,
+`llms.txt`, `openapi.json`, the Console) show each method's Required Action. The
+built-in `admin` Role reaches every action.
+
 ## Users
 
 - **People** are created when they first sign in through an Identity

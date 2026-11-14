@@ -195,7 +195,14 @@ function renderSidebar() {
       html += '<div class="method-group">';
       for (const m of info.methods) {
         const qualified = `${prefix}.${m.nsref}`;
-        html += `<div class="method-link" data-method="${qualified}">${m.nsref}</div>`;
+        const needs = m.required_action && m.required_action !== "call"
+          ? ` <span class="badge badge-requires">${escapeHtml(m.required_action)}</span>`
+          : "";
+        const cls = m.can_call === false ? "method-link method-locked" : "method-link";
+        const title = m.can_call === false
+          ? ` title="Requires '${escapeHtml(m.required_action)}' on ${escapeHtml(prefix)}"`
+          : "";
+        html += `<div class="${cls}" data-method="${qualified}"${title}>${m.nsref}${needs}</div>`;
       }
       html += "</div>";
     }

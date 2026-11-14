@@ -22,6 +22,7 @@ import tornado.web
 from lythonic.compose.namespace import Namespace
 from typing_extensions import override
 
+from woodglue.access import Grant, is_declared_action, required_action
 from woodglue.apps.auth_pages import CliCodes
 from woodglue.apps.identity_providers import (
     PendingSignIns,
@@ -29,7 +30,7 @@ from woodglue.apps.identity_providers import (
     make_clients,
     make_trusted_proxies,
 )
-from woodglue.apps.llm_docs import build_method_index
+from woodglue.apps.llm_docs import build_method_index, walk_namespace
 from woodglue.apps.rpc import JsonRpcHandler
 from woodglue.apps.ui_process import UiProcesses
 from woodglue.apps.ui_proxy import UiProxyHandler, UiSockets
@@ -109,6 +110,39 @@ class _RedactQueriesFilter(logging.Filter):
 _redact_queries_filter = _RedactQueriesFilter()
 
 
+def _check_required_actions(
+    namespaces: dict[str, tuple[Namespace, NamespaceEntry]], config: WoodglueConfig
+) -> None:
+    """
+    Fail on a node declaring a reserved or malformed Required Action, and warn on
+    a Role or UI Grant naming an action no namespace declares: such a Grant
+    reaches nothing, which is usually a typo.
+    """
+    declared: set[str] = set()
+    for prefix, (ns, _entry) in namespaces.items():
+        for nsref, node in walk_namespace(ns):
+            try:
+                declared.add(required_action(node.requires))
+            except ValueError as exc:
+                raise ValueError(f"Node '{prefix}.{nsref}': {exc}") from None
+    if not config.auth.enabled:
+        return
+    holders: list[tuple[str, tuple[Grant, ...]]] = [
+        (f"Role '{role}'", grants) for role, grants in config.auth.resolved_roles().items()
+    ]
+    holders += [
+        (f"UI '{name}'", tuple(Grant.parse(g) for g in entry.grants))
+        for name, entry in config.uis.items()
+        if entry.grants is not None
+    ]
+    for holder, grants in holders:
+        for grant in grants:
+            if is_declared_action(grant.action) and grant.action not in declared:
+                logger.warning(
+                    "%s grants action '%s', which no namespace declares", holder, grant.action
+                )
+
+
 def create_app(
     namespaces: dict[str, tuple[Namespace, NamespaceEntry]],
     config: WoodglueConfig | None = None,
@@ -140,6 +174,7 @@ def create_app(
     plain_namespaces = {prefix: ns for prefix, (ns, _) in namespaces.items()}
 
     method_index = build_method_index(namespaces)
+    _check_required_actions(namespaces, config)
 
     handlers: list[Any] = [
         (r"/rpc", JsonRpcHandler),

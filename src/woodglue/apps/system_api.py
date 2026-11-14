@@ -14,6 +14,8 @@ all tagged `["api"]`. Always mounted as the `system` prefix with
 - `recent_runs`, `active_runs`, `inspect_run`, `load_io`, `child_runs`, and
   `list_triggers` need `read`.
 - `fire_trigger`, `activate_trigger`, and `deactivate_trigger` need `trigger`.
+  Firing or activating also needs the Required Action of the trigger's node,
+  so `trigger` cannot run a node its holder could not call.
 - `list_uis` shows the UIs the Caller may open (`view` on `ui:<name>`, or
   public ones).
 - `describe_initiators` names the Users behind runs' `initiated_by`, and needs
@@ -43,7 +45,16 @@ from lythonic.compose.dag_runner import DagRunResult
 from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 
-from woodglue.access import ADMIN_ROLE, AccessDenied, Action, Caller, check, current_caller
+from woodglue.access import (
+    ADMIN_ROLE,
+    ANY_ACTION,
+    AccessDenied,
+    Action,
+    Caller,
+    check,
+    current_caller,
+    required_action,
+)
 from woodglue.apps.llm_docs import API_TAG, walk_namespace
 from woodglue.apps.rpc import INVALID_PARAMS, SYSTEM_PREFIX, RpcError
 from woodglue.apps.ui_process import UiProcesses, UiState
@@ -86,6 +97,10 @@ class MethodInfo(BaseModel):
     has_cache: bool
     has_triggers: bool
     doc_teaser: str | None = None
+    required_action: str = Action.call
+    """The action a Caller needs on the namespace to call this method."""
+    can_call: bool = True
+    """Whether the Caller of the listing holds `required_action` on the namespace."""
 
     doc: str | None = None
     args: list[ArgInfo] | None = None
@@ -167,6 +182,14 @@ def _can_see(namespace: str) -> bool:
     return namespace == SYSTEM_PREFIX or caller is None or caller.can_see(namespace)
 
 
+def _check_trigger_node(engine: NamespaceEngine, namespace: str, name: str) -> None:
+    try:
+        node, _tc = engine.namespace.get_trigger(name)
+    except KeyError:
+        return  # the trigger manager reports an unknown trigger
+    check(required_action(node.requires), namespace)
+
+
 def _require_user_caller() -> Caller:
     caller = current_caller.get()
     if caller is None or caller.user_id is None:
@@ -227,10 +250,12 @@ def build_system_namespace(
         if namespace not in namespaces or not _can_see(namespace):
             raise RpcError(INVALID_PARAMS, f"Namespace '{namespace}' not found")
         ns_obj, _entry = namespaces[namespace]
+        caller = current_caller.get()
         result: list[MethodInfo] = []
         for nsref, node in walk_namespace(ns_obj):
             if API_TAG not in node.tags:
                 continue
+            action = required_action(node.requires)
             result.append(
                 MethodInfo(
                     nsref=nsref,
@@ -238,6 +263,8 @@ def build_system_namespace(
                     has_cache=_node_has_cache(node),
                     has_triggers=_node_has_triggers(node),
                     doc_teaser=_docstring_teaser(node.method.doc) or None,
+                    required_action=action,
+                    can_call=caller is None or caller.can(action, namespace),
                 )
             )
         return result
@@ -256,6 +283,8 @@ def build_system_namespace(
 
         method = node.method
         iface = method.interface
+        caller = current_caller.get()
+        action = required_action(node.requires)
         args_info: list[ArgInfo] = [
             ArgInfo(
                 name=p.name,
@@ -274,7 +303,7 @@ def build_system_namespace(
             cache_config = {
                 k: v
                 for k, v in node.config.model_dump().items()
-                if k not in ("type", "nsref", "gref", "tags", "triggers")
+                if k not in ("type", "nsref", "gref", "tags", "triggers", "requires")
             }
 
         trigger_configs: list[TriggerInfo] | None = None
@@ -290,6 +319,8 @@ def build_system_namespace(
             has_cache=_node_has_cache(node),
             has_triggers=_node_has_triggers(node),
             doc_teaser=_docstring_teaser(method.doc) or None,
+            required_action=action,
+            can_call=caller is None or caller.can(action, namespace),
             doc=method.doc.strip() if method.doc else None,
             args=args_info,
             return_type=return_type,
@@ -347,6 +378,7 @@ def build_system_namespace(
         """Fire a trigger by name."""
         check(Action.trigger, namespace)
         engine = _get_engine(registry, namespace)
+        _check_trigger_node(engine, namespace, name)
         with engine.mount.activate():
             return await engine.trigger_manager.fire(name, payload)
 
@@ -354,6 +386,7 @@ def build_system_namespace(
         """Activate a trigger by name."""
         check(Action.trigger, namespace)
         engine = _get_engine(registry, namespace)
+        _check_trigger_node(engine, namespace, name)
         with engine.mount.activate():
             engine.trigger_manager.activate(name)
         activation = engine.trigger_store.get_activation(name)
@@ -481,8 +514,14 @@ def build_system_namespace(
         """Every defined Role, including the built-in `admin`, with its Grants."""
         check(Action.admin)
         roles = _store().roles
+        # The `admin` Role's reach to every declared action cannot be written in
+        # config, so it is not shown as a Grant to copy.
         return [
-            RoleInfo(name=n, grants=[str(g) for g in roles[n]], builtin=n == ADMIN_ROLE)
+            RoleInfo(
+                name=n,
+                grants=[str(g) for g in roles[n] if g.action != ANY_ACTION],
+                builtin=n == ADMIN_ROLE,
+            )
             for n in sorted(roles)
         ]
 

@@ -832,6 +832,8 @@ body {
 
 .method-link:hover { background: var(--bg-hover); color: var(--text-primary); }
 .method-link.active { color: var(--accent); background: var(--bg-active); }
+.method-link.method-locked { opacity: 0.5; }
+.badge-requires { background: var(--warning-dim); color: var(--warning); margin-left: 6px; }
 
 /* Account and tokens */
 
