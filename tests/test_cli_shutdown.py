@@ -15,7 +15,7 @@ import os
 import signal
 import socket
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from textwrap import dedent
@@ -86,7 +86,7 @@ async def _running_server(
     sigint: signal.Handlers = signal.SIG_DFL,
     config: str = CONFIG,
     startup: list[str] | None = None,
-) -> AsyncIterator[asyncio.subprocess.Process]:
+) -> AsyncGenerator[asyncio.subprocess.Process, None]:
     """
     Start `wgl start` with SIGINT set to `sigint`. Set explicitly because the
     test runner itself may inherit SIGINT as ignored (e.g. a background job).

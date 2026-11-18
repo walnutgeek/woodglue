@@ -20,7 +20,7 @@ from lythonic.compose.namespace import Namespace, NamespaceNode
 from pydantic import BaseModel
 from typing_extensions import override
 
-from woodglue.access import Caller
+from woodglue.access import Action, Caller, required_action
 from woodglue.apps.authn import authenticate
 from woodglue.config import NamespaceEntry
 
@@ -181,10 +181,13 @@ def generate_llms_txt(method_index: dict[str, dict[str, NamespaceNode]]) -> str:
             # Replace ':' with '/' in doc URLs for cleaner paths
             doc_path = qualified.replace(":", "/")
             doc_link = f"/docs/methods/{doc_path}.md"
+            line = f"- [{qualified}]({doc_link})"
             if teaser:
-                lines.append(f"- [{qualified}]({doc_link}): {teaser}")
-            else:
-                lines.append(f"- [{qualified}]({doc_link})")
+                line += f": {teaser}"
+            action = required_action(node.requires)
+            if action != Action.call:
+                line += f" (requires `{action}`)"
+            lines.append(line)
     lines.append("")
     return "\n".join(lines)
 
@@ -203,16 +206,18 @@ def generate_method_markdown(prefix: str, method_name: str, node: NamespaceNode)
     doc = method.doc or ""
     full_doc = doc.strip() if doc else ""
 
-    lines = [
-        f"# {qualified}",
-        "",
-        full_doc,
-        "",
-        "## Parameters",
-        "",
-        "| Name | Type | Required | Description |",
-        "|------|------|----------|-------------|",
-    ]
+    lines = [f"# {qualified}", "", full_doc, ""]
+    action = required_action(node.requires)
+    if action != Action.call:
+        lines.extend([f"Requires the `{action}` action on `{prefix}`.", ""])
+    lines.extend(
+        [
+            "## Parameters",
+            "",
+            "| Name | Type | Required | Description |",
+            "|------|------|----------|-------------|",
+        ]
+    )
 
     for arg in method.args:
         ann = resolved.get(arg.name, arg.annotation)
@@ -333,6 +338,7 @@ def generate_openapi_spec(
             }
             if method.doc:
                 operation["description"] = method.doc.strip()
+            operation["x-required-action"] = str(required_action(node.requires))
 
             paths[path] = {"post": operation}
 

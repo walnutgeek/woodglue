@@ -38,7 +38,7 @@ classifiers = [
 # ---- Main dependencies ----
 
 dependencies = [
-    "lythonic>=0.0.28",
+    "lythonic>=0.0.29",
     "polars",
     "tornado",
     "cryptography",
@@ -78,6 +78,8 @@ docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.27",
+    # markdown-pycon 1.0.2 breaks on pymdown-extensions 12 (Highlight needs `md`).
+    "pymdown-extensions<12",
 ]
 
 [project.scripts]

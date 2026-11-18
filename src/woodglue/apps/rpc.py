@@ -11,7 +11,9 @@ Every request runs as a `woodglue.access.Caller` (see `woodglue.apps.authn`):
   another origin: `-32003 "Cross-site request rejected"`.
 - A namespace the Caller cannot see is reported as `-32601 "Method not found"`,
   so its existence does not leak.
-- A visible namespace without a `call` Grant: `-32003 "Forbidden: ..."`.
+- A visible namespace without a Grant for the method's Required Action
+  (`call`, or the namespace action the node declares as `requires`):
+  `-32003 "Forbidden: ..."`.
 - DAG runs a call starts, and trigger changes it makes, record the Caller's
   User id as `initiated_by` (`anonymous` when auth is disabled).
 - `system.*` methods check their own Grants (see `woodglue.apps.system_api`)
@@ -42,7 +44,7 @@ from lythonic.compose.dag_provenance import initiated_by
 from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
-from woodglue.access import AccessDenied, Action, Caller, current_caller
+from woodglue.access import AccessDenied, Caller, current_caller, required_action
 from woodglue.apps.authn import AuthVia, authenticate, is_same_origin
 
 logger = logging.getLogger(__name__)
@@ -225,8 +227,9 @@ class JsonRpcHandler(tornado.web.RequestHandler):
             return
         # System methods check the action they need against the namespace they touch.
         if prefix != SYSTEM_PREFIX and self.caller is not None:
-            if not self.caller.can(Action.call, prefix):
-                denied = AccessDenied(Action.call, prefix)
+            action = required_action(node.requires)
+            if not self.caller.can(action, prefix):
+                denied = AccessDenied(action, prefix)
                 self.write(_error_response(FORBIDDEN, str(denied), request_id))
                 return
 

@@ -48,7 +48,7 @@ import json
 import logging
 import secrets
 import sqlite3
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -194,7 +194,7 @@ class AuthStore:
             self._migrate(conn)
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA foreign_keys = ON")
